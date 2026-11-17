@@ -180,7 +180,27 @@ the approval buttons and a free-text box; decisions go straight to `POST /a/{tok
 The built-in M1 adapters are examples to copy:
 
 - `sources`: `generic` (JSON field mapping in config, stable-hash dedupe)
-- `agents`: `shell` (runs one command; task data arrives via `HUB_*` env vars, stdout becomes the run output)
+- `agents`: `shell` / `command` — one config-driven adapter. It runs your command with the task in
+  `HUB_*` env vars and can read structured output back, so Claude Code, Codex, `t3 thread start` or
+  your own script are all just different blocks:
+
+```json
+"agents": {
+  "t3": {"type": "command",
+         "command": "t3 thread start \"$HUB_WORKSPACE\" \"$HUB_PROMPT\" --json --wait",
+         "timeout": 1800,
+         "parse": {"format": "json", "session": "threadId", "output": "reply"}},
+  "cc": {"type": "command",
+         "command": "claude -p \"$HUB_PROMPT\" --output-format json --model claude-sonnet-5-5",
+         "timeout": 1800,
+         "parse": {"format": "json", "session": "session_id"}}
+}
+```
+
+`parse` paths are dotted (`data.thread.id` works). `session` is stored on the task, `link` is a URL
+for humans, and `output` replaces raw stdout in the run record. `exit_codes` maps a non-zero exit to
+a status (`{"2": "pending"}` retries; anything unmapped fails). The default timeout is 60 s — raise
+it for real agents.
 - `notifiers`: `feishu` (self-built app, interactive card with url buttons — the default
   approval channel), `webhook` (POST/GET JSON to a URL), and `email` (stdlib `smtplib`,
   multipart/alternative HTML + plain text, SMTP_SSL or STARTTLS)

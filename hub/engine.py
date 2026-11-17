@@ -165,15 +165,20 @@ class Engine:
             payload["workspace"] = str(workspace)
         result = agent.start(payload, prompt)
         ok = bool(result.get("ok"))
+        # The adapter may choose the outcome (e.g. exit_codes in config); only
+        # `pending` advances the pipeline.
+        status = result.get("status") or ("pending" if ok else "failed")
         following = self.next_stage(task["stage"])
         return {
             "ok": ok,
             "agent": agent.name,
             "session": result.get("session"),
             "output": result.get("output") or result.get("error") or "",
-            "status": "pending" if ok else "failed",
-            "stage": following if ok else None,
-            "note": None if ok else (result.get("error") or "agent failed"),
+            "status": status,
+            "stage": following if status == "pending" else None,
+            "note": None
+            if status == "pending"
+            else (result.get("note") or result.get("error") or "agent failed"),
         }
 
     def _apply(self, task: dict, result: dict) -> None:

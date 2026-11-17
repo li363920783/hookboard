@@ -168,7 +168,26 @@ shell agent 以 `workspace` 为工作目录运行，并拿到 `HUB_PROJECT` / `H
 M1 内置的三个实现就是给接入者抄的样例：
 
 - `sources`：`generic`（JSON 字段映射写在配置里，没有 id 时用请求体哈希去重）
-- `agents`：`shell`（跑一条命令；任务信息通过 `HUB_*` 环境变量传入，stdout 作为运行输出）
+- `agents`：`shell` / `command`——同一个配置驱动的适配器。它跑你的命令，把任务信息放进 `HUB_*`
+  环境变量，并能从输出里读回结构化字段。所以 Claude Code、Codex、`t3 thread start`、你自己的脚本
+  都只是不同的配置块：
+
+```json
+"agents": {
+  "t3": {"type": "command",
+         "command": "t3 thread start \"$HUB_WORKSPACE\" \"$HUB_PROMPT\" --json --wait",
+         "timeout": 1800,
+         "parse": {"format": "json", "session": "threadId", "output": "reply"}},
+  "cc": {"type": "command",
+         "command": "claude -p \"$HUB_PROMPT\" --output-format json --model claude-sonnet-5-5",
+         "timeout": 1800,
+         "parse": {"format": "json", "session": "session_id"}}
+}
+```
+
+`parse` 的路径支持点号（`data.thread.id`）。`session` 存到任务上，`link` 给人看的链接，`output`
+替代原始 stdout 写进运行记录。`exit_codes` 把非零退出码映射成状态（`{"2": "pending"}` 重试，
+未映射的算失败）。默认超时 60 秒——真跑 agent 要调大。
 - `notifiers`：`feishu`（自建应用，interactive 卡片 + url 按钮，**默认审批渠道**）、
   `webhook`（POST/GET JSON 到你给的 URL）、`email`（标准库 `smtplib`，multipart/alternative
   的 HTML + 纯文本，支持 SMTP_SSL / STARTTLS）

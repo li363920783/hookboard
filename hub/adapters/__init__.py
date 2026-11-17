@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .email_notifier import EmailNotifier
 from .feishu_notifier import FeishuNotifier
-from .shell_agent import ShellAgent
+from .shell_agent import CommandAgent, ShellAgent
 from .webhook_notifier import WebhookNotifier
 
 
@@ -21,8 +21,8 @@ def load_source(name: str, entry: dict | None):
 def load_agent(entry: dict | None):
     entry = entry or {}
     kind = entry.get("type") or "shell"
-    if kind == "shell":
-        return ShellAgent(entry)
+    if kind in ("shell", "command"):
+        return CommandAgent(entry)
     raise ValueError(f"unknown agent type {kind!r}")
 
 
