@@ -142,6 +142,10 @@ agent 以 `workspace` 为工作目录运行，并拿到 `HUB_PROJECT` / `HUB_WOR
 - `steps`：某个阶段要跑的命令，复用 `CommandAgent`——`HUB_*` 全在（含 `HUB_EXTERNAL_ID`、
   `HUB_SOURCE`、`HUB_KIND`、`HUB_PAYLOAD`），退出码决定继续还是失败。发版、回写工单系统都放这里。
 - 审批阶段不跑 `steps`（先等人点通过）。
+- **按单路由**：让 `steps.intake` 输出 `{"workspace": "...", "branch": "...", "reason": "..."}`
+  并在 `parse` 里映射这三个键，引擎会把 workspace/branch 记在任务上，优先于项目的
+  `workspace`/`branch`；`reason` 进 note，随审批卡片展示，人点通过后才真正派单。
+  路由命令可以是任何东西（本地模型 CLI、规则脚本），目录由它自己掌控——组件只认这三个键。
 - agent 的提示词是「标题 + note + 上面那份摘要」，不再是光秃秃一个标题。
 
 **钩子怎么找到自己的项目**——只有两种，刻意不做规则 DSL（`when/then` 语言最后会长成半个工作流引擎）：
@@ -316,7 +320,7 @@ pip install 'hookboard[feishu]'
 ## 自己跑一遍
 
 ```bash
-python3 -m unittest discover -s tests -v      # 73 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验 + 阶段命令
+python3 -m unittest discover -s tests -v      # 77 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验 + 阶段命令
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 条判据 + 5 分钟 demo + OUTBOX 渠道；需要 curl + jq
 ```
 

@@ -205,6 +205,9 @@ class Engine:
         ]
         if task.get("project"):
             lines.append(f"项目：{task['project']}")
+        workspace, branch = self.dispatch_target(task)
+        if workspace:
+            lines.append(f"派单目标：{workspace}" + (f" @ {branch}" if branch else ""))
         payload = task.get("payload")
         if isinstance(payload, dict) and payload:
             fields = self.project_spec(task).get("fields") or {}
@@ -218,13 +221,27 @@ class Engine:
                 lines.append(f"原始内容：{blob[:1500]}")
         return "\n".join(lines)
 
+    def dispatch_target(self, task: dict) -> tuple[str, str]:
+        """(workspace, branch) for this task: the task's own choice wins.
+
+        A routing step may pick a repository and a branch per task; otherwise
+        the project config supplies them.
+        """
+        spec = self.project_spec(task)
+        return (
+            str(task.get("workspace") or spec.get("workspace") or ""),
+            str(task.get("branch") or spec.get("branch") or ""),
+        )
+
     def _run_agent(self, task: dict, agent=None) -> dict:
         prompt = self._prompt(task)
         agent = agent or self.agent_for(task)
         payload = dict(task)
-        workspace = self.project_spec(task).get("workspace")
+        workspace, branch = self.dispatch_target(task)
         if workspace:
-            payload["workspace"] = str(workspace)
+            payload["workspace"] = workspace
+        if branch:
+            payload["branch"] = branch
         result = agent.start(payload, prompt)
         ok = bool(result.get("ok"))
         # The adapter may choose the outcome (e.g. exit_codes in config); only
@@ -233,6 +250,9 @@ class Engine:
         following = self.next_stage(task["stage"])
         if status == "pending" and following is None:
             status = "done"
+        note = result.get("note")
+        if not note and status not in ("pending", "done"):
+            note = result.get("error") or "agent failed"
         return {
             "ok": ok,
             "agent": agent.name,
@@ -240,9 +260,9 @@ class Engine:
             "output": result.get("output") or result.get("error") or "",
             "status": status,
             "stage": following if status == "pending" else None,
-            "note": None
-            if status in ("pending", "done")
-            else (result.get("note") or result.get("error") or "agent failed"),
+            "workspace": result.get("workspace"),
+            "branch": result.get("branch"),
+            "note": note,
         }
 
     def _run_step(self, task: dict, spec) -> dict:
@@ -266,6 +286,9 @@ class Engine:
             fields["stage"] = result["stage"]
         if result.get("session") is not None:
             fields["session"] = result["session"]
+        for key in ("workspace", "branch"):
+            if result.get(key):
+                fields[key] = str(result[key])
         if result.get("note"):
             fields["note"] = str(result["note"])[:2000]
         if result.get("delay"):

@@ -151,6 +151,11 @@ A project also decides **what the card shows** and **what a stage runs**:
 - `steps` runs a command at a stage through the same `CommandAgent` — every `HUB_*` variable is set
   (`HUB_EXTERNAL_ID`, `HUB_SOURCE`, `HUB_KIND`, `HUB_PAYLOAD` included), the exit code decides
   whether the pipeline advances. Releases and ticket write-backs go here.
+- **Per-task routing**: a step at `intake` may print `{"workspace": "...", "branch": "...",
+  "reason": "..."}` and map those keys in `parse`; the engine stores them on the task and they win
+  over the project's `workspace`/`branch`. The reason becomes the task note, so the approval card
+  shows the chosen repository/branch; nothing is dispatched until a human approves. The routing
+  command can be anything (a local model CLI, a rule script) — the component only reads the keys.
 - Gate stages never run `steps` (a human answers first).
 - The agent prompt is now title + note + that digest, not just the title.
 
@@ -348,7 +353,7 @@ warning and the service runs normally.
 ## Validate it yourself
 
 ```bash
-python3 -m unittest discover -s tests -v      # 73 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
+python3 -m unittest discover -s tests -v      # 77 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 criteria + 5-minute demo + OUTBOX channels; curl + jq
 ```
 

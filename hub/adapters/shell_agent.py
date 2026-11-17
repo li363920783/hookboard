@@ -5,7 +5,7 @@ interpolation), so a hostile task title cannot inject shell syntax:
 ``HUB_TASK_ID``, ``HUB_TASK_TITLE``, ``HUB_TASK_STAGE``, ``HUB_TASK_NOTE``,
 ``HUB_PROJECT``, ``HUB_WORKSPACE``, ``HUB_PROMPT``, ``HUB_SOURCE``,
 ``HUB_KIND``, ``HUB_EXTERNAL_ID``, ``HUB_SESSION`` and ``HUB_PAYLOAD``
-(the hook body as JSON, capped at 60000 characters).
+(the hook body as JSON, capped at 60000 characters) and ``HUB_BRANCH``.
 
 This is the generic adapter behind both ``type: "shell"`` and
 ``type: "command"`` — there is no per-product code here.  Anything that can be
@@ -34,8 +34,10 @@ Config::
     }
 
 ``parse`` keys are dotted paths into the command's JSON output:
-``session`` (stored as the task session), ``link`` (shown to humans) and
-``output`` (what to record instead of raw stdout).  ``exit_codes`` maps a
+``session`` (stored as the task session), ``link`` (shown to humans),
+``output`` (what to record instead of raw stdout) and — for a routing step —
+``workspace``, ``branch`` and ``note`` (stored on the task, branch/reason
+shown on the approval card).  ``exit_codes`` maps a
 non-zero exit status to a task status (``pending`` retries, ``failed`` stops);
 anything unmapped is ``failed``.
 """
@@ -76,6 +78,7 @@ class CommandAgent:
                 "HUB_TASK_NOTE": task.get("note") or "",
                 "HUB_PROJECT": task.get("project") or "",
                 "HUB_WORKSPACE": workspace or "",
+                "HUB_BRANCH": task.get("branch") or "",
                 "HUB_PROMPT": prompt,
                 "HUB_SOURCE": task.get("source") or "",
                 "HUB_KIND": task.get("kind") or "",
@@ -126,8 +129,8 @@ class CommandAgent:
             status = "pending" if proc.returncode == 0 else "failed"
         parsed = self._parse(stdout)
         output = parsed.get("output") or stdout
-        note = None
-        if status != "pending":
+        note = parsed.get("note")
+        if not note and status != "pending":
             note = (stderr or stdout)[-2000:] or f"exit {proc.returncode}"
         return {
             "ok": proc.returncode == 0 or status == "pending",
@@ -138,6 +141,8 @@ class CommandAgent:
             "returncode": proc.returncode,
             "status": status,
             "note": note,
+            "workspace": parsed.get("workspace"),
+            "branch": parsed.get("branch"),
         }
 
     # -------------------------------------------------------------- parsing
@@ -160,7 +165,7 @@ class CommandAgent:
         if not isinstance(data, dict):
             return {}
         result = {}
-        for key in ("session", "link", "output"):
+        for key in ("session", "link", "output", "workspace", "branch", "note"):
             path = self.parse.get(key)
             if path:
                 value = self._dig(data, path)

@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     title         TEXT    NOT NULL DEFAULT '',
     lane          TEXT    NOT NULL DEFAULT '',
     project       TEXT    NOT NULL DEFAULT '',
+    workspace     TEXT    NOT NULL DEFAULT '',
+    branch        TEXT    NOT NULL DEFAULT '',
     status        TEXT    NOT NULL DEFAULT 'pending',
     stage         TEXT    NOT NULL,
     priority      INTEGER NOT NULL DEFAULT 0,
@@ -91,7 +93,17 @@ CREATE INDEX IF NOT EXISTS idx_events_task ON events (task_id);
 CREATE INDEX IF NOT EXISTS idx_runs_task ON runs (task_id);
 """
 
-UPDATE_FIELDS = {"status", "stage", "priority", "session", "note", "next_run_at", "lane"}
+UPDATE_FIELDS = {
+    "status",
+    "stage",
+    "priority",
+    "session",
+    "note",
+    "next_run_at",
+    "lane",
+    "workspace",
+    "branch",
+}
 
 
 def _task(row: sqlite3.Row | None) -> dict | None:
@@ -118,8 +130,11 @@ class Store:
             conn.executescript(SCHEMA)
             # Migration for databases created before `project` existed.
             columns = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
-            if "project" not in columns:
-                conn.execute("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT ''")
+            for name in ("project", "workspace", "branch"):
+                if name not in columns:
+                    conn.execute(
+                        f"ALTER TABLE tasks ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
+                    )
 
     @contextmanager
     def _conn(self):

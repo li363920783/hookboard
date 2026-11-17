@@ -16,9 +16,11 @@ class RecordingAgent:
 
     def __init__(self):
         self.prompts = []
+        self.tasks = []
 
     def start(self, task, prompt):
         self.prompts.append(prompt)
+        self.tasks.append(task)
         return {"ok": True, "session": None, "link": None, "error": None, "output": "ok"}
 
     def poll(self, task):
@@ -104,6 +106,49 @@ class DigestTestCase(unittest.TestCase):
         approval = self.store.get_approval(task["id"], "plan")
         self.assertIn("缺陷标题", approval["detail"])
         self.assertIn("收单失败", approval["detail"])
+
+    def test_routing_step_records_workspace_branch_and_reason(self):
+        self.cfg.projects["tapd"]["steps"] = {
+            "intake": {
+                "command": (
+                    "echo '{\"workspace\": \"/tmp/repo-a\", \"branch\": \"main\", "
+                    "\"reason\": \"标题命中随访员小程序\"}'"
+                ),
+                "parse": {
+                    "format": "json",
+                    "workspace": "workspace",
+                    "branch": "branch",
+                    "note": "reason",
+                },
+            }
+        }
+        task = self.new_task(stage="intake")
+        self.engine.process(task)
+        routed = self.store.get_task(task["id"])
+        self.assertEqual(routed["workspace"], "/tmp/repo-a")
+        self.assertEqual(routed["branch"], "main")
+        self.assertIn("随访员小程序", routed["note"])
+        self.assertEqual(routed["stage"], "plan")
+
+    def test_task_workspace_and_branch_override_the_project(self):
+        self.cfg.projects["tapd"]["workspace"] = "/tmp/project-default"
+        self.cfg.projects["tapd"]["branch"] = "master"
+        task = self.new_task(stage="work")
+        self.store.update_task(task["id"], where_status="running", workspace="/tmp/routed", branch="main")
+        self.engine.process(self.store.get_task(task["id"]))
+        payload = self.agent.tasks[-1]
+        self.assertEqual(payload["workspace"], "/tmp/routed")
+        self.assertEqual(payload["branch"], "main")
+
+    def test_approval_detail_shows_the_dispatch_target(self):
+        task = self.new_task(stage="plan")
+        self.store.update_task(
+            task["id"], where_status="running", workspace="/tmp/routed", branch="main"
+        )
+        task = self.store.get_task(task["id"])
+        self.engine.process(task)
+        approval = self.store.get_approval(task["id"], "plan")
+        self.assertIn("派单目标：/tmp/routed @ main", approval["detail"])
 
     def test_finish_step_runs_and_completes(self):
         task = self.new_task(stage="finish")
