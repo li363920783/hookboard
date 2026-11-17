@@ -464,7 +464,7 @@ class Store:
                     if following:
                         conn.execute(
                             "UPDATE tasks SET status='pending', stage=?, next_run_at=NULL, "
-                            "updated_at=? WHERE id=? AND status='waiting'",
+                            "note=NULL, updated_at=? WHERE id=? AND status='waiting'",
                             (following, now, task["id"]),
                         )
                     else:
@@ -483,9 +483,9 @@ class Store:
                         self._event(conn, task["id"], "done", "approval")
                 else:
                     conn.execute(
-                        "UPDATE tasks SET status='failed', updated_at=? "
+                        "UPDATE tasks SET status='failed', note=?, updated_at=? "
                         "WHERE id=? AND status='waiting'",
-                        (now, task["id"]),
+                        (answer_text or "打回", now, task["id"]),
                     )
                     self._event(conn, task["id"], "rejected", answer_text)
                 task = _task(

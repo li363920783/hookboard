@@ -217,6 +217,14 @@ class ApprovalAdvancesStageTest(HubTestCase):
         self.engine.decide(approval["token"], index=0)
         self.assertEqual(self.store.get_task(task["id"])["stage"], "dispatch")
 
+    def test_approval_clears_the_waiting_note(self):
+        # "等待审批：plan" must not ride along into the next agent prompt.
+        task = self.new_task()
+        approval = self.wait_for_approval(task["id"])
+        self.assertTrue(self.store.get_task(task["id"])["note"])
+        _, advanced, _ = self.engine.decide(approval["token"], index=0)
+        self.assertFalse(advanced["note"])
+
 
 class RejectionTest(HubTestCase):
     def test_reject_fails_the_task(self):
