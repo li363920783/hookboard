@@ -170,16 +170,17 @@ class Engine:
         """What an agent (or a stage command) is told about the task."""
         return "\n\n".join(
             part
-            for part in (task.get("title"), task.get("note"), self._task_digest(task))
+            for part in (task.get("title"), task.get("note"), self._task_digest(task, raw=True))
             if part
         ).strip()
 
-    def _task_digest(self, task: dict) -> str:
+    def _task_digest(self, task: dict, *, raw: bool = False) -> str:
         """Readable summary of the hook payload, shared by cards and prompts.
 
         Projects may pick fields out of the payload with ``fields`` (same dotted
-        paths as the source map); without it the raw payload is dumped, first
-        1500 characters.
+        paths as the source map).  With no fields configured, ``raw=True`` (the
+        agent prompt) appends the payload itself, first 1500 characters; cards
+        stay short instead of dumping half a TAPD payload into the chat.
         """
         lines = [
             f"来源：{task.get('source') or '?'} · 类型：{task.get('kind') or 'hook'} "
@@ -195,7 +196,7 @@ class Engine:
                     value = dig_any(payload, path)
                     if value not in (None, ""):
                         lines.append(f"**{label}**：{str(value)[:1000]}")
-            else:
+            elif raw:
                 blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
                 lines.append(f"原始内容：{blob[:1500]}")
         return "\n".join(lines)

@@ -72,11 +72,15 @@ class DigestTestCase(unittest.TestCase):
         self.assertIn("严重", prompt)
         self.assertIn("1148599968", prompt)
 
-    def test_digest_falls_back_to_raw_payload(self):
+    def test_digest_falls_back_to_raw_payload_for_prompts_only(self):
         task = self.new_task(project="", payload={"weird": {"shape": [1, 2]}})
-        digest = self.engine._task_digest(task)
-        self.assertIn("原始内容", digest)
-        self.assertIn('"weird"', digest)
+        prompt_digest = self.engine._task_digest(task, raw=True)
+        self.assertIn("原始内容", prompt_digest)
+        self.assertIn('"weird"', prompt_digest)
+        # Cards stay short: no half-payload dump in the chat.
+        card_digest = self.engine._task_digest(task)
+        self.assertNotIn("原始内容", card_digest)
+        self.assertIn("来源", card_digest)
 
     def test_digest_fields_accept_a_path_list(self):
         self.cfg.projects["tapd"]["fields"] = {"缺陷标题": ["title", "old_title"]}
