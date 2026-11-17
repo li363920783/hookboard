@@ -279,6 +279,73 @@
   #toast.show { opacity: 1; }
   #toast.error { border-color: #7f1d1d; background: #2a1114; color: #fecaca; }
 
+  /* ------------------------------------------------------------ polish */
+  body::before {
+    content: ""; position: fixed; inset: -40%; z-index: -1; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(90, 169, 255, .045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(90, 169, 255, .045) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 20%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 20%, transparent 75%);
+    animation: drift 40s linear infinite;
+  }
+  @keyframes drift { to { transform: translate3d(44px, 44px, 0); } }
+
+  .brand h1 {
+    background: linear-gradient(92deg, #eaf4ff, #7dd3fc 55%, #5aa9ff);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .brand .mark { text-shadow: 0 0 14px rgba(245, 185, 63, .65); }
+
+  #progress {
+    position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 60;
+    opacity: 0; transition: opacity .2s ease; pointer-events: none;
+  }
+  #progress.show { opacity: 1; }
+  #progress::after {
+    content: ""; display: block; height: 100%; width: 40%;
+    background: linear-gradient(90deg, transparent, #5aa9ff, #7dd3fc, transparent);
+    box-shadow: 0 0 12px rgba(90, 169, 255, .8);
+    animation: sweep 1.1s cubic-bezier(.4, 0, .2, 1) infinite;
+  }
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
+
+  /* Skeletons: the first paint never shows an empty board. */
+  .skel {
+    height: 96px; border-radius: var(--radius); border: 1px solid var(--line);
+    background: linear-gradient(100deg, #0e1620 30%, #16222f 45%, #0e1620 60%);
+    background-size: 220% 100%; animation: shimmer 1.3s ease-in-out infinite;
+  }
+  @keyframes shimmer { to { background-position: -120% 0; } }
+
+  .card { animation: cardIn .22s cubic-bezier(.2, .7, .3, 1) both; }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(6px) scale(.995); } }
+  .card:hover {
+    border-color: #35617f;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 0 0 1px rgba(90, 169, 255, .12);
+  }
+  .col-running .card::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(115deg, transparent 40%, rgba(90, 169, 255, .06) 50%, transparent 60%);
+    background-size: 250% 100%; animation: sheen 3.4s ease-in-out infinite;
+  }
+  @keyframes sheen { from { background-position: 130% 0; } to { background-position: -60% 0; } }
+
+  .chip b { transition: color .2s ease; }
+  .chip.bump b { animation: bump .32s ease; }
+  @keyframes bump { 40% { transform: scale(1.22); } }
+
+  .scrim { animation: fadeIn .16s ease; }
+  @keyframes fadeIn { from { opacity: 0; } }
+  .drawer { animation: slide .22s cubic-bezier(.2, .7, .3, 1); }
+  #toast { transform: translate(-50%, 8px); }
+  #toast.show { transform: translate(-50%, 0); transition: opacity .18s ease, transform .18s ease; }
+
+  @media (prefers-reduced-motion: reduce) {
+    body::before, .card, .col-running .card::after, .skel { animation: none !important; }
+  }
+
   @media (max-width: 980px) {
     main.board { grid-template-columns: 1fr 1fr; gap: 12px; padding: 14px; }
   }
@@ -292,6 +359,7 @@
 </style>
 </head>
 <body>
+<div id="progress" aria-hidden="true"></div>
 <header class="topbar">
   <div class="brand">
     <span class="mark">◆</span>
@@ -464,24 +532,68 @@
 
   function columnHtml(key, title, tasks) {
     var body = tasks.length ? tasks.map(cardHtml).join("") : '<div class="empty">暂无</div>';
-    return '<section class="col col-' + key + '">' +
-      '<header><span class="pulse"></span><h2>' + title + "</h2>" +
-      '<span class="n">' + tasks.length + "</span></header>" + body + "</section>";
+    return '<header><span class="pulse"></span><h2>' + title + "</h2>" +
+      '<span class="n">' + tasks.length + "</span></header>" + body;
+  }
+
+  var colNodes = {};
+  var colCache = {};
+  var lastTotals = {};
+  var columnsReady = false;
+
+  function ensureColumns() {
+    if (columnsReady) return;
+    board.innerHTML = COLUMNS.map(function (pair) {
+      return '<section class="col col-' + pair[0] + '"></section>';
+    }).join("");
+    COLUMNS.forEach(function (pair) {
+      colNodes[pair[0]] = board.querySelector(".col-" + pair[0]);
+    });
+    columnsReady = true;
+  }
+
+  function skeleton() {
+    board.innerHTML = COLUMNS.map(function (pair) {
+      return '<section class="col col-' + pair[0] + '">' +
+        '<header><span class="pulse"></span><h2>' + pair[1] + '</h2><span class="n">·</span></header>' +
+        '<div class="skel"></div><div class="skel"></div></section>';
+    }).join("");
   }
 
   function render(data) {
     var byKey = {};
     (data.columns || []).forEach(function (column) { byKey[column.key] = column; });
-    board.innerHTML = COLUMNS.map(function (pair) {
+    ensureColumns();
+    // Only the column whose markup changed is re-rendered, so a 3s poll no
+    // longer rewrites the whole board (flicker, lost hover, replaying anims).
+    COLUMNS.forEach(function (pair) {
       var column = byKey[pair[0]] || { tasks: [] };
-      return columnHtml(pair[0], pair[1], column.tasks || []);
-    }).join("");
+      var html = columnHtml(pair[0], pair[1], column.tasks || []);
+      if (colCache[pair[0]] !== html) {
+        colNodes[pair[0]].innerHTML = html;
+        colCache[pair[0]] = html;
+      }
+    });
 
     var totals = data.counts || {};
-    counts.innerHTML = COLUMNS.map(function (pair) {
+    var countsHtml = COLUMNS.map(function (pair) {
       return '<span class="chip chip-' + pair[0] + '"><i></i><b>' + num(totals[pair[0]]) +
         "</b>" + pair[1] + "</span>";
     }).join("");
+    if (counts.innerHTML !== countsHtml) {
+      counts.innerHTML = countsHtml;
+      COLUMNS.forEach(function (pair) {
+        var value = num(totals[pair[0]]);
+        if (lastTotals[pair[0]] !== undefined && lastTotals[pair[0]] !== value) {
+          var chip = counts.querySelector(".chip-" + pair[0]);
+          if (chip) {
+            chip.classList.add("bump");
+            setTimeout(function () { chip.classList.remove("bump"); }, 420);
+          }
+        }
+      });
+    }
+    COLUMNS.forEach(function (pair) { lastTotals[pair[0]] = num(totals[pair[0]]); });
 
     if (Array.isArray(data.projects) && data.projects.join() !== projects.join()) {
       projects = data.projects;
@@ -499,8 +611,21 @@
     return active.tagName === "TEXTAREA" || active.tagName === "INPUT";
   }
 
+  var progressEl = document.getElementById("progress");
+  var progressTimer = null;
+  // A thin bar only appears when the request is slow enough to notice.
+  function busy(on) {
+    clearTimeout(progressTimer);
+    if (on) {
+      progressTimer = setTimeout(function () { progressEl.classList.add("show"); }, 180);
+    } else {
+      progressEl.classList.remove("show");
+    }
+  }
+
   async function refresh() {
     if (isTyping()) return;
+    busy(true);
     try {
       var response = await fetch("/api/board", { cache: "no-store" });
       var data = await response.json();
@@ -510,6 +635,8 @@
       if (openTaskId && drawer.hidden === false) refreshDetail(openTaskId);
     } catch (err) {
       liveDot.className = "dot off";
+    } finally {
+      busy(false);
     }
   }
 
@@ -602,6 +729,7 @@
       esc(JSON.stringify(task.payload || {}, null, 2)) + "</pre></details></div>" +
       "</div>" +
       '<div class="foot">' +
+      (task.status === "failed" ? '<button class="small primary" data-retry="1">重试</button>' : "") +
       (task.status === "pending" ? '<button class="small" data-wake="1">唤醒</button>' : "") +
       (["pending", "running", "waiting"].indexOf(task.status) >= 0
         ? '<button class="small danger" data-cancel="1">取消任务</button>' : "") +
@@ -762,6 +890,15 @@
       return;
     }
 
+    if (event.target.closest("[data-retry]")) {
+      try {
+        var again = await writeJSON("/api/tasks/" + openTaskId + "/retry", {});
+        toast("已重新入队，任务 #" + again.task.id + " 会从当前阶段继续");
+        refreshDetail(openTaskId);
+      } catch (err) { toast("重试失败：" + err.message, true); }
+      return;
+    }
+
     if (event.target.closest("[data-wake]")) {
       try {
         await writeJSON("/api/tasks/" + openTaskId + "/wake", {});
@@ -804,6 +941,7 @@
     }
   });
 
+  skeleton();
   refresh();
   setInterval(refresh, 3000);
 })();

@@ -40,6 +40,19 @@ Config::
 shown on the approval card).  ``exit_codes`` maps a
 non-zero exit status to a task status (``pending`` retries, ``failed`` stops);
 anything unmapped is ``failed``.
+
+``async`` + ``poll`` (optional): ``command`` gets ``HUB_ASYNC=1``, should return
+as soon as the run is queued, and must print a session id.  The engine then runs
+``poll.command`` every ``poll.interval`` seconds instead of blocking a worker::
+
+    "async": true,
+    "poll": {"command": "t3 thread show \\"$HUB_SESSION\\" --json",
+             "interval": 15, "max_seconds": 2400}
+
+The run state is read from ``parse.state`` (default ``thread.status``); states
+in ``poll.running`` keep waiting, ``poll.failed`` ends the task as failed and
+anything else counts as done.  The last agent reply (``parse.reply``, default
+``messages``) becomes the delivered output.
 """
 
 from __future__ import annotations
@@ -67,6 +80,20 @@ class CommandAgent:
         self.exit_codes = {
             int(code): str(status) for code, status in (options.get("exit_codes") or {}).items()
         }
+        # Async mode: the start command returns as soon as the run is queued
+        # (HUB_ASYNC=1), then each engine tick polls ``poll.command`` with
+        # HUB_SESSION instead of holding a worker thread for the whole run.
+        self.async_mode = bool(options.get("async"))
+        poll = dict(options.get("poll") or {})
+        self.poll_command = str(poll.get("command") or "")
+        self.poll_interval = float(poll.get("interval", 15))
+        self.poll_max_seconds = float(poll.get("max_seconds", 0) or 0)
+        self.poll_running = [
+            str(v) for v in (poll.get("running") or ["running", "starting", "queued", "preparing"])
+        ]
+        self.poll_failed = [
+            str(v) for v in (poll.get("failed") or ["failed", "error", "cancelled", "interrupted"])
+        ]
 
     # ------------------------------------------------------------------ run
 
@@ -105,6 +132,11 @@ class CommandAgent:
     def start(self, task: dict, prompt: str) -> dict:
         workspace = self._workspace(task)
         env = self._env(task, prompt)
+        async_start = bool(self.async_mode and self.poll_command)
+        if async_start:
+            # The command may use this to skip a blocking wait; the engine
+            # polls `poll.command` afterwards instead.
+            env["HUB_ASYNC"] = "1"
         try:
             proc = subprocess.run(
                 self.command,
@@ -143,6 +175,30 @@ class CommandAgent:
             status = "pending" if proc.returncode == 0 else "failed"
         parsed = self._parse(stdout)
         output = parsed.get("output") or stdout
+        if async_start and proc.returncode == 0:
+            if not parsed.get("session"):
+                return {
+                    "ok": False,
+                    "session": None,
+                    "link": None,
+                    "error": "异步派单没有返回会话 id",
+                    "output": output[-4000:],
+                    "status": "failed",
+                    "note": "异步派单没有返回会话 id（检查 parse.session）",
+                }
+            return {
+                "ok": True,
+                "session": parsed.get("session"),
+                "link": parsed.get("link"),
+                "error": stderr[-2000:],
+                "output": output[-4000:],
+                "returncode": 0,
+                "status": "poll",
+                "note": None,
+                "poll_interval": self.poll_interval,
+                "workspace": parsed.get("workspace"),
+                "branch": parsed.get("branch"),
+            }
         note = parsed.get("note")
         if not note and status != "pending":
             note = (stderr or stdout)[-2000:] or f"exit {proc.returncode}"
@@ -201,8 +257,66 @@ class CommandAgent:
         return current
 
     def poll(self, task: dict) -> dict:
-        # The command already finished inside start(); nothing to poll.
-        return {"ok": True, "status": "done", "text": "", "error": None}
+        """Ask what happened to the run started earlier (async mode).
+
+        Returns ``status`` = ``running`` / ``done`` / ``failed``.  A failing
+        poll command counts as ``running``: a transient CLI error must not fail
+        a task that is still working; ``max_seconds`` ends it eventually.
+        """
+        if not self.poll_command:
+            # The command already finished inside start(); nothing to poll.
+            return {"ok": True, "status": "done", "text": "", "error": None}
+        try:
+            proc = subprocess.run(
+                self.poll_command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=min(self.timeout, 120),
+                cwd=self._workspace(task),
+                env=self._env(task),
+            )
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "status": "running", "text": "", "error": "poll timeout"}
+        except Exception as exc:  # missing binary, bad cwd, ...
+            return {"ok": False, "status": "running", "text": "", "error": str(exc)}
+        if proc.returncode != 0:
+            detail = ((proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}")[-500:]
+            return {"ok": False, "status": "running", "text": "", "error": detail}
+
+        doc = None
+        try:
+            doc = json.loads(proc.stdout or "")
+        except ValueError:
+            for line in reversed((proc.stdout or "").splitlines()):
+                if line.strip():
+                    try:
+                        doc = json.loads(line)
+                    except ValueError:
+                        pass
+                    break
+        data = doc if isinstance(doc, dict) else None
+        if data is None:
+            return {"ok": False, "status": "running", "text": "", "error": "poll output is not JSON"}
+
+        state = str(self._dig(data, self.parse.get("state") or "thread.status") or "").lower()
+        text = self._reply_text(data)
+        if state in self.poll_failed:
+            detail = text[:300].strip()
+            return {"ok": False, "status": "failed", "text": text,
+                    "error": f"agent {state}" + (f"：{detail}" if detail else "")}
+        if not state or state in self.poll_running:
+            return {"ok": True, "status": "running", "text": text, "error": None}
+        return {"ok": True, "status": "done", "text": text, "error": None}
+
+    def _reply_text(self, data: dict) -> str:
+        messages = self._dig(data, self.parse.get("reply") or "messages")
+        if not isinstance(messages, list):
+            return ""
+        for item in reversed(messages):
+            if isinstance(item, dict) and item.get("role") == "assistant":
+                return str(item.get("text") or "")[-4000:]
+        return ""
 
     def send(self, task: dict, message: str) -> dict:
         """Continue an existing session through ``send_command`` (optional).

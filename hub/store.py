@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     payload_json  TEXT    NOT NULL DEFAULT '{}',
     attempts      INTEGER NOT NULL DEFAULT 0,
     next_run_at   REAL,
+    polling       INTEGER NOT NULL DEFAULT 0,
+    poll_started_at REAL,
     created_at    REAL    NOT NULL,
     updated_at    REAL    NOT NULL,
     UNIQUE (source, kind, external_id)
@@ -103,6 +105,8 @@ UPDATE_FIELDS = {
     "lane",
     "workspace",
     "branch",
+    "polling",
+    "poll_started_at",
 }
 
 
@@ -135,6 +139,12 @@ class Store:
                     conn.execute(
                         f"ALTER TABLE tasks ADD COLUMN {name} TEXT NOT NULL DEFAULT ''"
                     )
+            if "polling" not in columns:
+                conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN polling INTEGER NOT NULL DEFAULT 0"
+                )
+            if "poll_started_at" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN poll_started_at REAL")
 
     @contextmanager
     def _conn(self):
@@ -259,6 +269,41 @@ class Store:
                 return None
             return _task(conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone())
 
+    def requeue_stale(self, seconds: float) -> list[int]:
+        """Requeue tasks a dead worker left in ``running`` (restart, kill).
+
+        Only rows untouched for *seconds* are touched, so a live long-running
+        agent is never stolen mid-flight.
+        """
+        now = time.time()
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, session FROM tasks WHERE status='running' AND updated_at < ?",
+                (now - float(seconds),),
+            ).fetchall()
+            ids = [row["id"] for row in rows]
+            for row in rows:
+                task_id = row["id"]
+                # A task that already has an agent session is resumed by
+                # polling it; starting a fresh run would duplicate the work.
+                resume = bool(row["session"])
+                conn.execute(
+                    "UPDATE tasks SET status='pending', next_run_at=NULL, polling=?, "
+                    "poll_started_at=?, note=?, updated_at=? "
+                    "WHERE id=? AND status='running'",
+                    (
+                        1 if resume else 0,
+                        now if resume else None,
+                        "检测到中断，继续监控已有会话"
+                        if resume
+                        else "疑似中断（进程重启/被杀），已自动重新入队",
+                        now,
+                        task_id,
+                    ),
+                )
+                self._event(conn, task_id, "requeue", "stale running task recovered")
+            return ids
+
     def claim_next(self, now: float | None = None) -> dict | None:
         """Pick and claim the next due pending task, or return ``None``."""
         now = time.time() if now is None else now
@@ -313,6 +358,20 @@ class Store:
             if cur.rowcount == 1:
                 self._event(conn, task_id, "wake", "next_run_at cleared")
             return _task(conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone())
+
+    def retry_task(self, task_id: int) -> dict | None:
+        """Requeue a failed task at its current stage; anything else is untouched."""
+        now = time.time()
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE tasks SET status='pending', next_run_at=NULL, note=NULL, polling=0, "
+                "poll_started_at=NULL, updated_at=? WHERE id=? AND status='failed'",
+                (now, task_id),
+            )
+            if cur.rowcount == 1:
+                self._event(conn, task_id, "retry", "requeued after failure")
+            row = conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+            return _task(row) if row else None
 
     def cancel_task(self, task_id: int) -> dict | None:
         now = time.time()

@@ -27,6 +27,7 @@ from .adapters.generic_source import dig_any
 
 _TAG = re.compile(r"<[^>]+>")
 _SPACE = re.compile(r"\s+")
+_SECRETISH = re.compile(r"secret|token|passw|sign|api_?key|^key$|^pat$", re.I)
 
 
 def plain_text(value, limit: int = 1000) -> str:
@@ -60,6 +61,7 @@ class Engine:
         self._agents: dict = {}
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+        self._last_stale_check = 0.0
 
     # -------------------------------------------------------------- projects
 
@@ -104,6 +106,9 @@ class Engine:
         return self.stages[index + 1] if index + 1 < len(self.stages) else None
 
     def start(self) -> None:
+        # A previous process may have died while a task was `running`; nobody
+        # will ever finish it, so send it back to the queue before workers run.
+        self._recover_stale()
         for index in range(max(1, self.config.workers)):
             thread = threading.Thread(
                 target=self._loop, name=f"hub-worker-{index}", daemon=True
@@ -116,9 +121,37 @@ class Engine:
         for thread in self._threads:
             thread.join(timeout=2)
 
+    def _stale_after(self) -> float:
+        """How long an untouched `running` row counts as dead.
+
+        Must exceed the longest agent run, or a slow-but-alive agent would be
+        duplicated; twice the largest configured timeout is the safe default.
+        """
+        if self.config.stale_after:
+            return float(self.config.stale_after)
+        timeouts = [
+            float(entry.get("timeout") or 0)
+            for entry in (self.config.agents or {}).values()
+            if isinstance(entry, dict)
+        ]
+        return max(max(timeouts + [1800.0]) * 2, 600.0)
+
+    def _recover_stale(self) -> list[int]:
+        self._last_stale_check = time.time()
+        try:
+            ids = self.store.requeue_stale(self._stale_after())
+        except Exception:
+            traceback.print_exc()
+            return []
+        if ids:
+            print(f"recovered stale running tasks: {ids}", flush=True)
+        return ids
+
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
+                if time.time() - self._last_stale_check > 60:
+                    self._recover_stale()
                 if not self.step():
                     self._stop.wait(self.config.poll_interval)
             except Exception:
@@ -179,7 +212,7 @@ class Engine:
         if stage == self.stages[-1]:
             return lambda task: {"status": "done"}
         if stage == "work":
-            return self._run_agent
+            return self._work
         following = self.next_stage(stage)
         return lambda task: {"status": "pending", "stage": following}
 
@@ -233,6 +266,59 @@ class Engine:
             str(task.get("branch") or spec.get("branch") or ""),
         )
 
+    def _work(self, task: dict) -> dict:
+        # Async agents are started once, then only polled on later ticks.
+        if task.get("polling") and task.get("session"):
+            return self._poll_work(task)
+        return self._run_agent(task)
+
+    def _poll_work(self, task: dict) -> dict:
+        agent = self.agent_for(task)
+        result = agent.poll(task) or {}
+        state = str(result.get("status") or "running")
+        text = str(result.get("text") or "")
+        started = float(task.get("poll_started_at") or 0) or time.time()
+
+        if state == "running":
+            limit = float(getattr(agent, "poll_max_seconds", 0) or 0)
+            if limit and time.time() - started > limit:
+                return {
+                    "ok": False,
+                    "status": "failed",
+                    "note": f"等待 agent 完成超时（{int(limit)}s），已停止轮询",
+                    "polling": 0,
+                    "poll_started_at": None,
+                }
+            return {
+                "ok": True,
+                "status": "pending",
+                "stage": task["stage"],  # stay in work, just look again
+                "delay": float(getattr(agent, "poll_interval", 15) or 15),
+                "polling": 1,
+                "poll_started_at": started,
+            }
+        if state == "failed":
+            return {
+                "ok": False,
+                "status": "failed",
+                "note": result.get("error") or "agent failed",
+                "output": text,
+                "polling": 0,
+                "poll_started_at": None,
+            }
+
+        following = self.next_stage(task["stage"])
+        return {
+            "ok": True,
+            "agent": agent.name,
+            "status": "pending" if following else "done",
+            "stage": following,
+            "output": text,
+            "polling": 0,
+            "poll_started_at": None,
+            "note": "agent 已完成",
+        }
+
     def _run_agent(self, task: dict, agent=None) -> dict:
         prompt = self._prompt(task)
         agent = agent or self.agent_for(task)
@@ -247,6 +333,22 @@ class Engine:
         # The adapter may choose the outcome (e.g. exit_codes in config); only
         # `pending` advances the pipeline.
         status = result.get("status") or ("pending" if ok else "failed")
+        if status == "poll":
+            # Async: the run is queued; stay in this stage and poll instead of
+            # keeping a worker blocked for the whole agent run.
+            return {
+                "ok": True,
+                "agent": agent.name,
+                "session": result.get("session"),
+                "link": result.get("link"),
+                "output": result.get("output") or "",
+                "status": "pending",
+                "stage": task["stage"],
+                "delay": float(result.get("poll_interval") or 15),
+                "polling": 1,
+                "poll_started_at": time.time(),
+                "note": result.get("note") or "已派单，agent 运行中（轮询监控）",
+            }
         following = self.next_stage(task["stage"])
         if status == "pending" and following is None:
             status = "done"
@@ -300,6 +402,10 @@ class Engine:
         for key in ("workspace", "branch"):
             if result.get(key):
                 fields[key] = str(result[key])
+        if "polling" in result:
+            fields["polling"] = 1 if result["polling"] else 0
+        if "poll_started_at" in result:
+            fields["poll_started_at"] = result["poll_started_at"]
         if result.get("note"):
             fields["note"] = str(result["note"])[:2000]
         if result.get("delay"):
@@ -312,8 +418,10 @@ class Engine:
             return
         if status == "done":
             self.store.add_event(task["id"], "done", updated["stage"])
+            self._notify_finished(updated, "done")
         elif status == "failed":
             self.store.add_event(task["id"], "failed", fields.get("note", ""))
+            self._notify_finished(updated, "failed")
 
     # ---------------------------------------------------------------- gates
 
@@ -339,9 +447,7 @@ class Engine:
                 task_id=task["id"],
                 stage=stage,
                 question=f"阶段「{stage}」需要确认：{task['title']}",
-                detail="\n\n".join(
-                    part for part in (task.get("note"), self._task_digest(task)) if part
-                ),
+                detail=self._approval_detail(task, stage),
                 options=["通过", "打回"],
                 recommend=0,
             )
@@ -367,7 +473,7 @@ class Engine:
         """
         url = self.config.public_base.rstrip("/") + "/a/" + approval["token"]
         title = approval["question"]
-        body = approval["detail"] or task.get("title") or ""
+        body = self._card_body(task, approval["detail"] or task.get("title") or "")
         options = approval["options"]
         for name, notifier in self.dispatch_targets(task).items():
             if not self.store.claim_notification(task["id"], approval["stage"], name):
@@ -386,6 +492,126 @@ class Engine:
             self.store.finish_notification(
                 task["id"], approval["stage"], name, bool(result.get("ok")), result.get("detail", "")
             )
+
+    def _card_body(self, task: dict, detail: str) -> str:
+        """Approval detail; raw fields only when the project configures none.
+
+        A TAPD payload is full of ids, proxy hosts and the webhook `secret` —
+        noise on a card and one credential too many.  Projects with ``fields``
+        already show what matters, and the untouched payload stays on the
+        「去处理」 page.
+        """
+        spec = self.project_spec(task)
+        payload = task.get("payload")
+        if spec.get("fields") or not isinstance(payload, dict) or not payload:
+            return detail
+        lines = []
+        for key, value in payload.items():
+            if str(key).startswith("old_") or _SECRETISH.search(str(key)):
+                continue
+            text = plain_text(value, 200)
+            if text:
+                lines.append(f"{key}: {text}")
+            if len(lines) >= 10:
+                break
+        if not lines:
+            return detail
+        return (detail + "\n\n**原始字段**\n" + "\n".join(lines)).strip()
+
+    def _approval_detail(self, task: dict, stage: str) -> str:
+        """What the person needs at *this* gate.
+
+        plan  = what the ticket is about (the digest);
+        review = what the agent delivered, plus the one line they must decide.
+        """
+        parts = [str(task.get("note"))] if task.get("note") else []
+        if stage == "review":
+            parts.append("**变动**：计划已通过，agent 已交付（见下）")
+            parts.append(f"**要你决定**：验收「{task.get('title') or ''}」")
+            parts.append(
+                "**agent 交付**：\n" + (self._delivery_summary(task) or "（没有输出记录）")
+            )
+            workspace, branch = self.dispatch_target(task)
+            if workspace:
+                parts.append(
+                    f"**派单目标**：{workspace}" + (f" @ {branch}" if branch else "")
+                )
+        else:
+            parts.append(self._task_digest(task))
+        return "\n\n".join(part for part in parts if part)
+
+    def _delivery_summary(self, task: dict, limit: int = 1500) -> str:
+        """Last successful work/finish output — the "what was done" text."""
+        runs = self.store.task_detail(task["id"]).get("runs") or []
+        for run in reversed(runs):
+            if run.get("stage") in ("work", "finish") and run.get("ok"):
+                text = str(run.get("output") or "").strip()
+                if text:
+                    return plain_text(text, limit)
+        return ""
+
+    @staticmethod
+    def _elapsed_text(task: dict) -> str:
+        created = float(task.get("created_at") or 0)
+        if not created:
+            return "—"
+        seconds = max(0, int(time.time() - created))
+        if seconds < 60:
+            return f"{seconds}s"
+        if seconds < 3600:
+            return f"{seconds // 60}m"
+        return f"{seconds // 3600}h{(seconds % 3600) // 60}m"
+
+    def _finished_body(self, task: dict, kind: str) -> str:
+        if kind == "done":
+            parts = [
+                "**变动**：复核已通过，任务结束",
+                "**完成内容**：\n" + (self._delivery_summary(task) or "（没有输出记录）"),
+            ]
+            if task.get("note"):
+                parts.append(f"**备注**：{task['note']}")
+        else:
+            parts = [f"**失败原因**：{task.get('note') or 'agent failed'}"]
+            summary = self._delivery_summary(task)
+            if summary:
+                parts.append("**已有输出**：\n" + summary)
+        parts.append(
+            f"**阶段**：{task.get('stage')} · **耗时**：{self._elapsed_text(task)}"
+        )
+        return "\n\n".join(parts)
+
+    def _notify_finished(self, task: dict, kind: str) -> None:
+        """One card when the task ends (done or failed), deduped per task."""
+        label = "任务完成" if kind == "done" else "任务失败"
+        title = f"{label}：{task.get('title') or ''}"
+        body = self._finished_body(task, kind)
+        link = self.config.public_base.rstrip("/") + "/"
+        # Attempt number in the key: a replayed claim is deduped, while a
+        # retried task that ends again still reports a second time.
+        key = f"{kind}#{task.get('attempts') or 0}"
+        for name, notifier in self.dispatch_targets(task).items():
+            if not self.store.claim_notification(task["id"], key, name):
+                continue
+            notifier.context = {
+                "task_id": task["id"],
+                "stage": task.get("stage"),
+                "notice_kind": kind,
+                "source": task.get("source"),
+                "external_id": task.get("external_id"),
+                "task_title": task.get("title"),
+                "public_base": self.config.public_base.rstrip("/"),
+            }
+            try:
+                result = notifier.notify(title, body, [("打开看板", link)])
+                ok = bool(result.get("ok"))
+                detail = str(result.get("detail") or "")
+            except Exception as exc:
+                ok, detail = False, f"{type(exc).__name__}: {exc}"
+            self.store.finish_notification(task["id"], key, name, ok, detail)
+            if not ok:
+                self.store.add_event(
+                    task["id"], "notify_error", f"{name}: {detail}"
+                )
 
     def _try_ask(self, notifier, name, task_id, title, body, url, options) -> dict:
         result = self._call_ask(notifier, title, body, url, options)

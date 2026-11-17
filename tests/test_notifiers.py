@@ -108,7 +108,9 @@ class OutboxPayloadTest(unittest.TestCase):
         self.assertIsInstance(content, str)
         # Acceptance greps the content for the approval and board links.
         self.assertIn("/a/", content)
-        self.assertIn("/api/board", content)
+        self.assertIn("打开看板", content)
+        # The board link is the page, never the JSON API.
+        self.assertNotIn("/api/board", content)
         card = json.loads(content)
         self.assertEqual(card["schema"], "2.0")
         elements = card["body"]["elements"]
@@ -158,15 +160,35 @@ class OutboxPayloadTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         payload = json.loads(self._files()[0].read_text(encoding="utf-8"))
         card = json.loads(payload["content"])
-        buttons = [e for e in card["body"]["elements"] if e["tag"] == "button"]
-        self.assertEqual([b["type"] for b in buttons], ["primary", "danger", "default", "default"])
+        elements = card["body"]["elements"]
+        forms = [e for e in elements if e["tag"] == "form"]
+        self.assertEqual(len(forms), 1)
+        # The form carries the optional reason; submit buttons answer the gate.
+        fields = forms[0]["elements"]
         self.assertEqual(
-            buttons[0]["behaviors"][0], {"type": "callback", "value": {"token": "token-abc", "index": 0}}
+            [fields[0]["tag"], fields[0]["name"]], ["input", "comment"]
         )
-        self.assertEqual(
-            buttons[1]["behaviors"][0], {"type": "callback", "value": {"token": "token-abc", "index": 1}}
-        )
-        self.assertTrue(buttons[2]["behaviors"][0]["default_url"].endswith("/a/token-abc"))
+        decisions = [e for e in fields if e["tag"] == "button"]
+        self.assertEqual([b["type"] for b in decisions], ["primary", "danger"])
+        self.assertEqual(decisions[0]["value"], {"token": "token-abc", "index": 0})
+        self.assertEqual(decisions[0]["form_action_type"], "submit")
+        # Feishu drops the value on form submit; the name must identify the gate.
+        self.assertEqual(decisions[0]["name"], "token-abc:0")
+        self.assertEqual(decisions[1]["name"], "token-abc:1")
+        links = [e for e in elements if e["tag"] == "button"]
+        self.assertEqual(len(links), 2)
+        self.assertTrue(links[0]["behaviors"][0]["default_url"].endswith("/a/token-abc"))
+
+    def test_feishu_card_keeps_long_details(self):
+        # The card must carry the full detail, not the old 4000-char cut.
+        body = "X" * 6000
+        with mock.patch.dict(os.environ, {"HUB_OUTBOX": "1"}):
+            notifier = FeishuNotifier({"enabled": True}, str(self.outbox))
+            notifier.context = self._feishu_context()
+            notifier.ask("需要审批", body, URL, ["通过", "打回"])
+        payload = json.loads(self._files()[0].read_text(encoding="utf-8"))
+        markdown = json.loads(payload["content"])["body"]["elements"][0]["content"]
+        self.assertIn(body, markdown)
 
     def test_feishu_send_uses_configured_receive_id_type(self):
         # Real-send path (creds present, not dry_run): the request URL must carry

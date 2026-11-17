@@ -42,11 +42,13 @@ def message_event(
     )
 
 
-def card_event(value, open_id="ou_user"):
+def card_event(value, open_id="ou_user", form_value=None, name=""):
     return SimpleNamespace(
         event=SimpleNamespace(
             operator=SimpleNamespace(open_id=open_id),
-            action=SimpleNamespace(value=value, tag="button"),
+            action=SimpleNamespace(
+                value=value, tag="button", form_value=form_value, name=name
+            ),
         )
     )
 
@@ -73,10 +75,39 @@ class ParseMessageTest(unittest.TestCase):
 class ParseCardActionTest(unittest.TestCase):
     def test_reads_token_and_index(self):
         action = parse_card_action(card_event({"token": "tok-1", "index": 1}))
-        self.assertEqual(action, {"token": "tok-1", "index": 1, "open_id": "ou_user"})
+        self.assertEqual(
+            action, {"token": "tok-1", "index": 1, "open_id": "ou_user", "comment": ""}
+        )
+
+    def test_form_submit_carries_the_typed_comment(self):
+        action = parse_card_action(
+            card_event(
+                {"token": "tok-1", "index": 1},
+                form_value={"comment": "  先别发版，看下日志  "},
+            )
+        )
+        self.assertEqual(action["comment"], "先别发版，看下日志")
+        self.assertEqual(action["index"], 1)
 
     def test_unknown_button_returns_none(self):
         self.assertIsNone(parse_card_action(card_event({"something": "else"})))
+
+    def test_form_submit_falls_back_to_the_button_name(self):
+        # Feishu drops a form button's `value`; the name still carries
+        # "<token>:<index>" so the decision can be resolved.
+        action = parse_card_action(
+            card_event(
+                None,
+                name="tok-9:1",
+                form_value={"comment": " 先别发版 "},
+            )
+        )
+        self.assertEqual(action["token"], "tok-9")
+        self.assertEqual(action["index"], 1)
+        self.assertEqual(action["comment"], "先别发版")
+
+    def test_nameless_click_returns_none(self):
+        self.assertIsNone(parse_card_action(card_event(None, name="")))
 
 
 class BindingTest(unittest.TestCase):

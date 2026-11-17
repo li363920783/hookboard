@@ -106,5 +106,69 @@ class CommandAgentTest(unittest.TestCase):
             self.assertEqual(result["output"].strip(), str(tmp))
 
 
+# ------------------------------------------------------------- async mode
+
+    def async_agent(self, poll_command: str, command: str = None) -> CommandAgent:
+        return CommandAgent(
+            {
+                "command": command
+                or "printf 'async=%s' \"$HUB_ASYNC\" >&2; echo '{\"threadId\":\"t-9\"}'",
+                "parse": {"format": "json", "session": "threadId"},
+                "async": True,
+                "poll": {"command": poll_command, "interval": 7},
+            }
+        )
+
+    def test_async_start_returns_poll_instead_of_waiting(self):
+        agent = self.async_agent("true")
+        result = agent.start({}, "p")
+        self.assertEqual(result["status"], "poll")
+        self.assertEqual(result["session"], "t-9")
+        self.assertEqual(result["poll_interval"], 7)
+        # The dispatch script learns it must not block.
+        self.assertIn("async=1", result["error"])
+
+    def test_async_start_without_a_session_fails(self):
+        agent = self.async_agent("true", command="echo '{}'")
+        result = agent.start({}, "p")
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("会话", result["note"])
+
+    def test_poll_maps_thread_state_to_running_done_failed(self):
+        running = self.async_agent(
+            """printf '%s' '{"thread":{"status":"running"},"messages":[{"role":"assistant","text":"半成品"}]}'"""
+        ).poll({})
+        self.assertEqual(running["status"], "running")
+        self.assertEqual(running["text"], "半成品")
+
+        done = self.async_agent(
+            """printf '%s' '{"thread":{"status":"completed"},"messages":[{"role":"user","text":"go"},{"role":"assistant","text":"改完了"}]}'"""
+        ).poll({})
+        self.assertEqual(done["status"], "done")
+        self.assertEqual(done["text"], "改完了")
+
+        failed = self.async_agent(
+            """printf '%s' '{"thread":{"status":"failed"},"messages":[{"role":"assistant","text":"构建挂了"}]}'"""
+        ).poll({})
+        self.assertEqual(failed["status"], "failed")
+        self.assertIn("构建挂了", failed["error"])
+
+    def test_a_failing_poll_command_keeps_the_task_running(self):
+        # Transient CLI errors must not fail a live task; max_seconds ends it.
+        result = self.async_agent("exit 4").poll({})
+        self.assertEqual(result["status"], "running")
+        self.assertIn("exit 4", result["error"])
+
+    def test_async_agent_without_poll_command_waits_normally(self):
+        agent = CommandAgent(
+            {
+                "command": "echo '{\"threadId\":\"t-1\"}'",
+                "parse": {"format": "json", "session": "threadId"},
+                "async": True,
+            }
+        )
+        self.assertNotEqual(agent.start({}, "p")["status"], "poll")
+
+
 if __name__ == "__main__":
     unittest.main()

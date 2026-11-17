@@ -25,6 +25,10 @@ class Config:
     public_base: str = "http://127.0.0.1:8899"
     workers: int = 2
     poll_interval: float = 1.0
+    # A task still `running` with no update for this long is assumed dead
+    # (service restarted mid-run) and goes back to the queue.  0 = derive from
+    # the agent timeouts.
+    stale_after: float = 0.0
     db_path: str = "./data/hub.db"
     stages: list[str] = field(
         default_factory=lambda: ["intake", "plan", "dispatch", "work", "review", "finish"]
@@ -65,6 +69,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
             public_base_set = True
         cfg.workers = int(engine.get("workers", cfg.workers))
         cfg.poll_interval = float(engine.get("poll_interval", cfg.poll_interval))
+        cfg.stale_after = float(engine.get("stale_after", cfg.stale_after))
 
         db = str(database.get("path", cfg.db_path))
         cfg.db_path = str((base_dir / db).resolve()) if not os.path.isabs(db) else db

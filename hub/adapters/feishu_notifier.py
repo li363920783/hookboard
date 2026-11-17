@@ -33,6 +33,8 @@ from .base import outbox_enabled, write_outbox
 TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 SEND_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
 BINDING_FILENAME = "feishu_binding.json"
+# Human labels for the gates that produce a card, so plan vs review read apart.
+STAGE_LABELS = {"plan": "开工前确认", "review": "完成后复核"}
 
 
 # --------------------------------------------------------------- binding file
@@ -99,7 +101,7 @@ class FeishuNotifier:
 
     # ------------------------------------------------------------------ card
 
-    def _card(self, title: str, url: str, body_md: str = "") -> dict:
+    def _card(self, title: str, url: str, body_md: str = "", notice: bool = False) -> dict:
         ctx = self.context
         public_base = (ctx.get("public_base") or url.split("/a/")[0]).rstrip("/")
         token = ctx.get("token") or url.rsplit("/", 1)[-1]
@@ -109,25 +111,54 @@ class FeishuNotifier:
         stage = ctx.get("stage") or "?"
         question = ctx.get("question") or title
 
+        if notice:
+            # A finished task is a report, not a gate: title + outcome + link,
+            # no decision buttons.
+            kind = str(ctx.get("notice_kind") or "done")
+            label = "任务完成" if kind == "done" else "任务失败"
+            link = url or f"{public_base}/"
+            markdown = f"**{task_title}**\n\n{(body_md or '').strip()[:7000]}\n\n[打开看板]({link})"
+            return {
+                "schema": "2.0",
+                "header": {
+                    "title": {"tag": "plain_text", "content": f"Hookboard · {label}"},
+                    "template": "green" if kind == "done" else "red",
+                },
+                "body": {
+                    "elements": [
+                        {"tag": "markdown", "content": markdown},
+                        {
+                            "tag": "button",
+                            "type": "default",
+                            "text": {"tag": "plain_text", "content": "打开看板"},
+                            "behaviors": [{"type": "open_url", "default_url": link}],
+                        },
+                    ]
+                },
+            }
+
         approval_url = f"{public_base}/a/{token}"
         board_url = f"{public_base}/"
-        board_api = f"{public_base}/api/board"
+        # Two gates per task can carry the same ticket text; label the stage so
+        # the second card does not read as a duplicate push.
+        stage_label = STAGE_LABELS.get(str(stage), str(stage))
+        template = "orange" if str(stage) == "review" else "blue"
         # The engine's digest already carries source / ticket / fields; only
         # fall back to the bare context lines when nobody passed a body.
         if body_md:
-            header = body_md.strip()[:4000]
+            header = body_md.strip()[:7000]
         else:
             header = f"来源: {source} · 条目: {external_id}"
         markdown = (
-            f"**{task_title}**\n"
-            f"{header}\n"
-            f"阶段: {stage}\n"
-            f"等你决定: {question}\n"
-            f"看板数据: {board_api}\n"
-            "字段超出卡片长度会被截断，完整原文见「去处理」页。"
+            f"**{task_title}**\n\n"
+            f"{header}\n\n"
+            f"**阶段**：{stage}（{stage_label}）\n"
+            f"**等你决定**：{question}\n"
+            f"**看板**：[打开看板]({board_url})\n\n"
+            "> 字段超出卡片长度会被截断，完整原文见「去处理」页。"
         )
         if self.inbound:
-            markdown += "\n可直接在卡片上点「通过 / 打回」，也可点「去处理」在网页上处理。"
+            markdown += "\n可在卡片上写意见再点「通过 / 打回」，也可点「去处理」在网页上处理。"
 
         # Card schema 2.0 dropped the `action` container (Feishu rejects it with
         # 230099 "unsupported tag action"); buttons are top-level elements now.
@@ -141,32 +172,61 @@ class FeishuNotifier:
 
         elements = [{"tag": "markdown", "content": markdown}]
         if self.inbound:
-            elements += [
+            # Form so the person can leave a reason with the decision: Feishu
+            # collects the input and returns it as action.form_value.  A form
+            # must sit at the card root, and buttons inside it use
+            # form_action_type=submit instead of behaviors.
+            elements.append(
                 {
-                    "tag": "button",
-                    "type": "primary",
-                    "text": {"tag": "plain_text", "content": "通过"},
-                    "behaviors": [{"type": "callback", "value": {"token": token, "index": 0}}],
-                },
-                {
-                    "tag": "button",
-                    "type": "danger",
-                    "text": {"tag": "plain_text", "content": "打回"},
-                    "behaviors": [{"type": "callback", "value": {"token": token, "index": 1}}],
-                },
-            ]
+                    "tag": "form",
+                    "name": "approval_form",
+                    "elements": [
+                        {
+                            "tag": "input",
+                            "name": "comment",
+                            "max_length": 300,
+                            "placeholder": {
+                                "tag": "plain_text",
+                                "content": "审批意见（可选，打回时建议写明原因）",
+                            },
+                        },
+                        {
+                            "tag": "button",
+                            "type": "primary",
+                            "name": f"{token}:0",
+                            "form_action_type": "submit",
+                            "value": {"token": token, "index": 0},
+                            "text": {"tag": "plain_text", "content": "通过"},
+                        },
+                        {
+                            "tag": "button",
+                            "type": "danger",
+                            "name": f"{token}:1",
+                            "form_action_type": "submit",
+                            "value": {"token": token, "index": 1},
+                            "text": {"tag": "plain_text", "content": "打回"},
+                        },
+                    ],
+                }
+            )
         elements += [
             open_url_button("去处理", approval_url),
             open_url_button("打开看板", board_url),
         ]
         return {
             "schema": "2.0",
-            "header": {"title": {"tag": "plain_text", "content": "Hookboard 审批"}},
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": f"Hookboard 审批 · {stage_label}",
+                },
+                "template": template,
+            },
             "body": {"elements": elements},
         }
 
-    def _request_body(self, title: str, url: str, body_md: str = "") -> dict:
-        card = self._card(title, url, body_md)
+    def _request_body(self, title: str, url: str, body_md: str = "", notice: bool = False) -> dict:
+        card = self._card(title, url, body_md, notice=notice)
         _, receive_id = self.resolve_target()
         return {
             "receive_id": receive_id,
@@ -178,16 +238,16 @@ class FeishuNotifier:
 
     def notify(self, title: str, body_md: str, links: list[tuple[str, str]]) -> dict:
         url = links[0][1] if links else ""
-        return self._deliver(title, url, body_md)
+        return self._deliver(title, url, body_md, notice=True)
 
     def ask(self, title: str, body_md: str, url: str, options: list[str]) -> dict:
         return self._deliver(title, url, body_md)
 
-    def _deliver(self, title: str, url: str, body_md: str = "") -> dict:
+    def _deliver(self, title: str, url: str, body_md: str = "", notice: bool = False) -> dict:
         if not self.enabled:
             return {"ok": True, "detail": "feishu disabled"}
         receive_id_type, receive_id = self.resolve_target()
-        payload = self._request_body(title, url, body_md)
+        payload = self._request_body(title, url, body_md, notice=notice)
         if self.dry_run or not receive_id:
             self._warn_missing(receive_id)
             # Outbox artifact = the exact send body plus task/stage metadata so

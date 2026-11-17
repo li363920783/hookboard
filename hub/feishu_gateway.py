@@ -25,7 +25,12 @@ import json
 import sys
 import threading
 
-from .adapters.feishu_notifier import FeishuNotifier, read_binding, write_binding
+from .adapters.feishu_notifier import (
+    STAGE_LABELS,
+    FeishuNotifier,
+    read_binding,
+    write_binding,
+)
 
 HELP = (
     "Hookboard 已绑定。\n"
@@ -66,21 +71,40 @@ def parse_message(data) -> dict | None:
 
 
 def parse_card_action(data) -> dict | None:
-    """Pull ``{token, index, open_id}`` out of a card-action callback."""
+    """Pull ``{token, index, open_id, comment}`` out of a card-action callback.
+
+    ``comment`` comes from the card's form (``action.form_value``) and may be
+    empty; the token/index still come from the button's own value.
+    """
     event = getattr(data, "event", None)
     operator = getattr(event, "operator", None)
     action = getattr(event, "action", None)
     value = getattr(action, "value", None) or {}
-    if not isinstance(value, dict) or "token" not in value:
-        return None
+    if not isinstance(value, dict):
+        value = {}
+    token = str(value.get("token") or "")
+    raw_index = value.get("index")
+    if "token" not in value:
+        # A button inside a form submits the whole form and Feishu drops its
+        # own `value`; the component name is what still identifies it.
+        # Card buttons are named "<token>:<index>" for exactly this path.
+        name = str(getattr(action, "name", "") or "")
+        token, _, raw_index = name.rpartition(":")
+        if not token or raw_index not in ("0", "1"):
+            return None
     try:
-        index = int(value.get("index", 0))
+        index = int(raw_index if raw_index is not None else 0)
     except (TypeError, ValueError):
         return None
+    form_value = getattr(action, "form_value", None) or {}
+    comment = ""
+    if isinstance(form_value, dict):
+        comment = str(form_value.get("comment") or "").strip()
     return {
-        "token": str(value["token"]),
+        "token": token,
         "index": index,
         "open_id": getattr(operator, "open_id", "") or "",
+        "comment": comment,
     }
 
 
@@ -208,7 +232,10 @@ class FeishuGateway:
         # Same entry point as POST /a/{token}: one state machine, one idempotency
         # guard, one event trail — the card is just another front door.
         approval, task, changed = self.engine.decide(
-            action["token"], index=action["index"], by=f"feishu:{action['open_id']}"
+            action["token"],
+            index=action["index"],
+            text=action.get("comment") or None,
+            by=f"feishu:{action['open_id']}",
         )
         if approval is None:
             return respond("error", "审批不存在")
@@ -228,19 +255,25 @@ class FeishuGateway:
     @staticmethod
     def _result_card(task: dict, approval: dict, label: str, open_id: str) -> dict:
         who = open_id[-6:] if open_id else "?"
+        answer = str(approval.get("answer_text") or "")
+        # decide() stores the bare option name when no comment was typed.
+        comment = answer if answer and answer not in (approval.get("options") or []) else ""
+        text = (
+            f"**{task.get('title') or '任务'}**\n"
+            f"任务 #{task.get('id')} · 阶段 {approval.get('stage')}\n\n"
+            f"**{label}** · 处理人 …{who}"
+        )
+        if comment:
+            text += f"\n\n意见：{comment[:300]}"
         return {
             "schema": "2.0",
-            "header": {"title": {"tag": "plain_text", "content": "Hookboard 审批"}},
-            "body": {
-                "elements": [
-                    {
-                        "tag": "markdown",
-                        "content": (
-                            f"**{task.get('title') or '任务'}**\n"
-                            f"任务 #{task.get('id')} · 阶段 {approval.get('stage')}\n\n"
-                            f"**{label}** · 处理人 …{who}"
-                        ),
-                    }
-                ]
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": "Hookboard 审批 · "
+                    + STAGE_LABELS.get(str(approval.get("stage")), str(approval.get("stage"))),
+                },
+                "template": "green",
             },
+            "body": {"elements": [{"tag": "markdown", "content": text}]},
         }

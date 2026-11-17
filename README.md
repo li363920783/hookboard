@@ -72,7 +72,7 @@ file is `config.example.json` and runs out of the box.
 {
   "server": {"bind": "127.0.0.1", "port": 8899, "api_token": "change-me",
              "public_base": "http://127.0.0.1:8899"},
-  "engine": {"workers": 2, "poll_interval": 1},
+  "engine": {"workers": 2, "poll_interval": 1, "stale_after": 0},
   "database": {"path": "./data/hub.db"},
   "pipeline": {
     "stages": ["intake", "plan", "dispatch", "work", "review", "finish"],
@@ -234,6 +234,7 @@ that same request before setting `auth`.
 | `POST` | `/api/tasks/{id}/wake` | Clear `next_run_at` so a pending task runs now |
 | `POST` | `/api/tasks/{id}/cancel` | Cancel a pending/running/waiting task |
 | `POST` | `/api/tasks/{id}/message` | Send an instruction into the running session `{"text":"…"}` (agent needs `send`) |
+| `POST` | `/api/tasks/{id}/retry` | Requeue a failed task from its failed stage |
 | `GET` | `/a/{token}` | Human-friendly approval page (HTML, phone-ready) |
 | `POST` | `/a/{token}` | Submit `{"index":0}` / `{"index":1}` / `{"text":"…"}` |
 | `GET` | `/api/board` | Board data (the UI polls this every 3 s) |
@@ -270,11 +271,14 @@ The built-in M1 adapters are examples to copy:
 ```json
 "agents": {
   "t3": {"type": "command",
-         "command": "t3 thread start \"$HUB_WORKSPACE\" \"$HUB_PROMPT\" --json --wait",
+         "command": "t3 thread start \"$HUB_WORKSPACE\" \"$HUB_PROMPT\" --json",
          "send": "t3 thread send \"$HUB_SESSION\" -",
          "send_timeout": 60,
          "timeout": 1800,
-         "parse": {"format": "json", "session": "threadId", "output": "reply"}},
+         "parse": {"format": "json", "session": "threadId", "output": "reply"},
+         "async": true,
+         "poll": {"command": "t3 thread show \"$HUB_SESSION\" --json",
+                  "interval": 15, "max_seconds": 2400}},
   "cc": {"type": "command",
          "command": "claude -p \"$HUB_PROMPT\" --output-format json --model claude-sonnet-5-5",
          "timeout": 1800,
@@ -287,6 +291,21 @@ for humans, and `output` replaces raw stdout in the run record. `exit_codes` map
 a status (`{"2": "pending"}` retries; anything unmapped fails). The default timeout is 60 s — raise
 it for real agents. An optional `send` command continues an existing session (the board's message box
 uses it for running tasks); the text arrives on stdin, so no shell quoting is involved.
+
+**Long agent runs.** By default a worker blocks until the command exits. With `"async": true` plus a
+`poll` block the start command only queues the run — it receives `HUB_ASYNC=1`, must return quickly
+and print a session id — and the engine re-polls `poll.command` every `interval` seconds. The run
+state comes from `thread.status` by default (`parse.state` overrides): `running` keeps waiting,
+`failed` ends the task, anything else counts as done, and the last assistant message becomes the
+delivered output. `max_seconds` stops an endless wait; a failing poll command keeps the task alive,
+so a flaky CLI never kills a live run. Workers are free between polls, so two workers supervise any
+number of agents.
+
+**Stuck tasks.** A task left in `running` by a restarted or killed service is recovered at startup
+and once a minute. With a session it resumes polling instead of starting a second run (no duplicate
+work); without one it goes back to the queue. The cutoff is `engine.stale_after` seconds, defaulting
+to twice the largest agent `timeout` (at least 10 minutes), so a slow-but-alive agent is never
+stolen.
 - `notifiers`: `feishu` (self-built app, interactive card with url buttons — the default
   approval channel), `webhook` (POST/GET JSON to a URL), and `email` (stdlib `smtplib`,
   multipart/alternative HTML + plain text, SMTP_SSL or STARTTLS)
@@ -359,7 +378,7 @@ warning and the service runs normally.
 ## Validate it yourself
 
 ```bash
-python3 -m unittest discover -s tests -v      # 82 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
+python3 -m unittest discover -s tests -v      # 105 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps + monitoring
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 criteria + 5-minute demo + OUTBOX channels; curl + jq
 ```
 

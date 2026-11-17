@@ -304,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path.startswith("/api/tasks/"):
             parts = path.strip("/").split("/")
-            if len(parts) != 4 or parts[3] not in ("wake", "cancel", "message"):
+            if len(parts) != 4 or parts[3] not in ("wake", "cancel", "message", "retry"):
                 return self._json({"ok": False, "error": "not found"}, 404)
             try:
                 task_id = int(parts[2])
@@ -312,7 +312,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": "bad task id"}, 400)
             if parts[3] == "message":
                 return self._message(task_id)
-            if parts[3] == "wake":
+            # Drain the body: these actions ignore it, and unread bytes would be
+            # parsed as the next request line on a keep-alive connection.
+            self._read_body()
+            if parts[3] == "retry":
+                current = hub.store.get_task(task_id)
+                if current is None:
+                    return self._json({"ok": False, "error": "task not found"}, 404)
+                if current["status"] != "failed":
+                    return self._json(
+                        {"ok": False, "error": "only failed tasks can be retried"}, 400
+                    )
+                task = hub.store.retry_task(task_id)
+            elif parts[3] == "wake":
                 task = hub.store.wake_task(task_id)
             else:
                 task = hub.store.cancel_task(task_id)
