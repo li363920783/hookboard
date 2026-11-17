@@ -13,7 +13,9 @@ Rules enforced here (and only here):
 
 from __future__ import annotations
 
+import html as html_lib
 import json
+import re
 import threading
 import time
 import traceback
@@ -21,6 +23,21 @@ from pathlib import Path
 
 from .adapters import load_agent, load_notifier
 from .adapters.generic_source import dig_any
+
+
+_TAG = re.compile(r"<[^>]+>")
+_SPACE = re.compile(r"\s+")
+
+
+def plain_text(value, limit: int = 1000) -> str:
+    """Render a payload value for a human: no HTML tags, no newline storms.
+
+    TAPD comment bodies arrive as HTML (``<p><b class="at-who">@…</b>…``), and
+    dumping that into a card or an agent prompt is unreadable.
+    """
+    text = _TAG.sub(" ", str(value))
+    text = html_lib.unescape(text)
+    return _SPACE.sub(" ", text).strip()[:limit]
 
 
 class Engine:
@@ -195,7 +212,7 @@ class Engine:
                 for label, path in fields.items():
                     value = dig_any(payload, path)
                     if value not in (None, ""):
-                        lines.append(f"**{label}**：{str(value)[:1000]}")
+                        lines.append(f"**{label}**：{plain_text(value)}")
             elif raw:
                 blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
                 lines.append(f"原始内容：{blob[:1500]}")

@@ -82,6 +82,16 @@ class DigestTestCase(unittest.TestCase):
         self.assertNotIn("原始内容", card_digest)
         self.assertIn("来源", card_digest)
 
+    def test_digest_fields_strip_html(self):
+        payload = {"bug": {"title": "", "severity": "严重", "url": "https://example.com/b/1",
+                          "description": '<p><strong>复现步骤</strong></p><p>点开&nbsp;聊天页</p>'}}
+        self.cfg.projects["tapd"]["fields"] = {"描述": "bug.description"}
+        task = self.new_task(payload=payload)
+        digest = self.engine._task_digest(task, raw=True)
+        self.assertIn("复现步骤", digest)
+        self.assertNotIn("<p>", digest)
+        self.assertNotIn("&nbsp;", digest)
+
     def test_digest_fields_accept_a_path_list(self):
         self.cfg.projects["tapd"]["fields"] = {"缺陷标题": ["title", "old_title"]}
         task = self.new_task(payload={"old_title": "TAPD 只在更新事件里给 old_title"})
