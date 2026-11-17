@@ -77,7 +77,8 @@ curl -s -X POST http://127.0.0.1:8899/hooks/generic \
   "agents": {"default": {"type": "shell", "command": "echo done"}},
   "notifiers": {
     "feishu": {"type": "feishu", "enabled": true, "app_id": "", "app_secret": "",
-               "receive_id_type": "chat_id", "receive_id": "", "dry_run": true},
+               "receive_id_type": "chat_id", "receive_id": "", "inbound": false,
+               "dry_run": true},
     "webhook": {"type": "webhook", "url": "https://example.com/hook", "dry_run": true},
     "email": {"type": "email", "host": "smtp.example.com", "port": 465, "tls": "ssl",
               "user": "bot@example.com", "password": "", "from": "bot@example.com",
@@ -154,16 +155,44 @@ M1 内置的三个实现就是给接入者抄的样例：
 - **凭据**只从配置 / 环境变量读（`HUB_EMAIL_PASSWORD`、webhook header、
   `feishu.app_id / app_secret / receive_id`），仓库里不存任何真实 key。
 
-`feishu` 用自建应用：先取 `tenant_access_token`，再发 interactive 卡片（schema 2.0），两个 url
-按钮——**去处理**（`/a/<token>`）和**打开看板**（`/`）。发送目标纯配置驱动：`receive_id_type`
-（`chat_id` 发群，`open_id` / `union_id` / `user_id` / `email` 发个人）+ `receive_id`，就是飞书
-标准消息 API，代码里不嵌任何具体身份。**不用长连接 / 事件订阅收审批**，决定永远在网页上做。缺凭据
-时只打一行 warn 并落到 outbox，不会崩、不会卡住任务。
+`feishu` 用自建应用：先取 `tenant_access_token`，再发 interactive 卡片（schema 2.0）。发送目标纯配置
+驱动：`receive_id_type`（`chat_id` 发群，`open_id` / `union_id` / `user_id` / `email` 发个人）+
+`receive_id`，就是飞书标准消息 API，代码里不嵌任何具体身份。缺凭据或目标时只打一行 warn 并落到
+outbox，不会崩、不会卡住任务。
+
+**两个审批入口，一套状态机。** 每张卡片都带**去处理**（`/a/<token>`）和**打开看板**两个链接；
+开着 `inbound` 时再多**通过 / 打回**两个按钮，回调也调同一个 `decide()`——同一套幂等守卫、同一份
+事件留痕。两个入口随便点哪个，另一个都会显示「已处理」，不会重复推进。
+
+### 飞书入站（可选）
+
+只发卡片不需要额外依赖。要让 bot「能听」——用户发一条消息即完成绑定、发一句话建任务、在卡片上
+直接点通过/打回——才需要官方 SDK，而且严格 opt-in，核心仍是零第三方运行时依赖：
+
+```bash
+pip install 'hookboard[feishu]'
+```
+
+然后在 `feishu` 配置里设 `"inbound": true`。飞书开放平台这边：应用要有**机器人**能力、**事件订阅
+选长连接（WebSocket）模式**（不用公网回调地址）、权限 `im:message` 和 `im:message:send_as_bot`，
+并订阅 `im.message.receive_v1` 与 `card.action.trigger` 两个事件。
+
+它做的事：
+
+- **首次接触即绑定**：给 bot 发一条消息（或发 `/bind`），它的 `sender.open_id` 写进
+  `data/feishu_binding.json`；配置里 `receive_id` 为空时通知就用这个目标，不用改配置就能收到审批。
+- **说一句就建任务**：任意纯文本消息建一条任务（`source=feishu`），按飞书 `message_id` 去重；
+  `/help` 列出命令。
+- **群里点、网页点都行**：卡片按钮和 `/a/<token>` 页面都走 `decide()`，一边处理了另一边显示已处理。
+- **`allowed_open_ids`**（可选）：限制谁能建任务/审批。留空表示能碰到 bot 的人都可以——单人自用
+  没问题，多人共享时建议设上。
+
+`lark-oapi` 只在网关内部惰性 import；没装时 `inbound: true` 打一行 warn，服务照常运行。
 
 ## 自己跑一遍
 
 ```bash
-python3 -m unittest discover -s tests -v      # 状态机 + 通知 outbox/去重/重试用例
+python3 -m unittest discover -s tests -v      # 28 个用例：状态机 + 通知 + 入站网关
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 条判据 + 5 分钟 demo + OUTBOX 渠道；需要 curl + jq
 ```
 

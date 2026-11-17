@@ -1,7 +1,12 @@
 """Feishu (Lark) self-built-app notifier — docs/CHANNELS.md §1, M1 default channel.
 
-Pure ``urllib``; no long-connection / event subscription.  Approvals travel as a
-link (``/a/<token>``); the interactive card only carries two url buttons.
+Pure ``urllib``; sending never needs a long-connection or event subscription.
+Approvals can be answered two ways, both ending in the same ``store.decide()``:
+
+  1. the web token link (``/a/<token>``) carried in the card;
+  2. the card's own 通过 / 打回 buttons — only when ``inbound`` is on, because
+     those need the optional WebSocket gateway (``hub/feishu_gateway.py``) to
+     receive the card-action callback.
 
 Flow (real send):
   1. POST /open-apis/auth/v3/tenant_access_token/internal  {app_id, app_secret}
@@ -9,14 +14,11 @@ Flow (real send):
      Authorization: Bearer <tenant_access_token>
      {receive_id, msg_type: "interactive", content: "<card JSON string>"}
 
-Offline: when ``HUB_OUTBOX=1`` / ``dry_run`` is set, or credentials are missing,
+Offline: when ``HUB_OUTBOX=1`` / ``dry_run`` is set, or the target is unknown,
 no request is made — the full send request body is written to
-``data/outbox/<ts>-feishu.json``.  Missing credentials log a single warning and
-never crash or block the task.
-
-Target and credentials come only from config (``notifiers.feishu.app_id /
-app_secret / receive_id_type / receive_id / enabled``); no real value and no
-user-specific identity is stored in the repo.
+``data/outbox/<ts>-feishu.json`` and one warning is logged.  Credentials and
+target come only from config or from the binding file the inbound gateway
+writes on first contact; no real value and no identity is stored in the repo.
 """
 
 from __future__ import annotations
@@ -24,11 +26,40 @@ from __future__ import annotations
 import json
 import sys
 import urllib.request
+from pathlib import Path
 
 from .base import outbox_enabled, write_outbox
 
 TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
 SEND_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
+BINDING_FILENAME = "feishu_binding.json"
+
+
+# --------------------------------------------------------------- binding file
+# Written by the inbound gateway when a person messages the bot.  Kept next to
+# the database (not in the repo) so a fresh clone has no identity of any kind.
+
+def binding_path_for(outbox_dir: str) -> Path:
+    return Path(outbox_dir).parent / BINDING_FILENAME
+
+
+def read_binding(path: str | Path) -> dict:
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def write_binding(path: str | Path, **fields) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current = read_binding(path)
+    current.update({k: v for k, v in fields.items() if v})
+    path.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
 
 
 class FeishuNotifier:
@@ -43,15 +74,28 @@ class FeishuNotifier:
         # union_id / user_id / email (P2P). Pure config; no identity baked in.
         self.receive_id_type = entry.get("receive_id_type") or "chat_id"
         self.receive_id = entry.get("receive_id") or entry.get("chat_id") or ""
+        self.inbound = bool(entry.get("inbound", False))
+        self.allowed_open_ids = list(entry.get("allowed_open_ids") or [])
         self.timeout = float(entry.get("timeout", 10))
         self.dry_run = outbox_enabled(entry)
         self.outbox_dir = outbox_dir
+        self.binding_path = binding_path_for(outbox_dir)
         self.context: dict = {}
         self._warned = False
 
+    # ---------------------------------------------------------------- target
+
+    def resolve_target(self) -> tuple[str, str]:
+        """Explicit config wins; otherwise fall back to the inbound binding."""
+        if self.receive_id:
+            return self.receive_id_type, self.receive_id
+        bound = read_binding(self.binding_path).get("open_id") or ""
+        return ("open_id", bound) if bound else (self.receive_id_type, "")
+
     @property
     def has_creds(self) -> bool:
-        return bool(self.app_id and self.app_secret and self.receive_id)
+        _, receive_id = self.resolve_target()
+        return bool(self.app_id and self.app_secret and receive_id)
 
     # ------------------------------------------------------------------ card
 
@@ -75,37 +119,65 @@ class FeishuNotifier:
             f"等你决定: {question}\n"
             f"看板数据: {board_api}"
         )
+        if self.inbound:
+            actions = [
+                {
+                    "tag": "button",
+                    "type": "primary",
+                    "text": {"tag": "plain_text", "content": "通过"},
+                    "behaviors": [{"type": "callback", "value": {"token": token, "index": 0}}],
+                },
+                {
+                    "tag": "button",
+                    "type": "danger",
+                    "text": {"tag": "plain_text", "content": "打回"},
+                    "behaviors": [{"type": "callback", "value": {"token": token, "index": 1}}],
+                },
+                {
+                    "tag": "button",
+                    "type": "default",
+                    "text": {"tag": "plain_text", "content": "去处理"},
+                    "multi_url": {"url": approval_url},
+                },
+                {
+                    "tag": "button",
+                    "type": "default",
+                    "text": {"tag": "plain_text", "content": "打开看板"},
+                    "multi_url": {"url": board_url},
+                },
+            ]
+            markdown += "\n可直接在卡片上点「通过 / 打回」，也可点「去处理」在网页上处理。"
+        else:
+            actions = [
+                {
+                    "tag": "button",
+                    "type": "default",
+                    "text": {"tag": "plain_text", "content": "去处理"},
+                    "multi_url": {"url": approval_url},
+                },
+                {
+                    "tag": "button",
+                    "type": "default",
+                    "text": {"tag": "plain_text", "content": "打开看板"},
+                    "multi_url": {"url": board_url},
+                },
+            ]
         return {
             "schema": "2.0",
             "header": {"title": {"tag": "plain_text", "content": "Hookboard 审批"}},
             "body": {
                 "elements": [
                     {"tag": "markdown", "content": markdown},
-                    {
-                        "tag": "action",
-                        "actions": [
-                            {
-                                "tag": "button",
-                                "type": "default",
-                                "text": {"tag": "plain_text", "content": "去处理"},
-                                "multi_url": {"url": approval_url},
-                            },
-                            {
-                                "tag": "button",
-                                "type": "default",
-                                "text": {"tag": "plain_text", "content": "打开看板"},
-                                "multi_url": {"url": board_url},
-                            },
-                        ],
-                    },
+                    {"tag": "action", "actions": actions},
                 ]
             },
         }
 
     def _request_body(self, title: str, url: str) -> dict:
         card = self._card(title, url)
+        _, receive_id = self.resolve_target()
         return {
-            "receive_id": self.receive_id,
+            "receive_id": receive_id,
             "msg_type": "interactive",
             "content": json.dumps(card, ensure_ascii=False),
         }
@@ -122,15 +194,10 @@ class FeishuNotifier:
     def _deliver(self, title: str, url: str) -> dict:
         if not self.enabled:
             return {"ok": True, "detail": "feishu disabled"}
+        receive_id_type, receive_id = self.resolve_target()
         payload = self._request_body(title, url)
-        if self.dry_run or not self.has_creds:
-            if not self.has_creds and not self.dry_run and not self._warned:
-                self._warned = True
-                print(
-                    "warn: feishu credentials missing (app_id/app_secret/receive_id); "
-                    "writing to outbox instead of sending",
-                    file=sys.stderr,
-                )
+        if self.dry_run or not receive_id:
+            self._warn_missing(receive_id)
             # Outbox artifact = the exact send body plus task/stage metadata so
             # the acceptance can attribute and dedup it. The real send stays pure.
             artifact = dict(payload)
@@ -138,7 +205,33 @@ class FeishuNotifier:
             artifact["stage"] = self.context.get("stage")
             path = write_outbox(self.outbox_dir, "feishu", artifact)
             return {"ok": True, "detail": f"outbox:{path}"}
-        return self._send(payload)
+        return self._send(payload, receive_id_type)
+
+    def _warn_missing(self, receive_id: str) -> None:
+        if self.dry_run or receive_id or self._warned:
+            return
+        self._warned = True
+        print(
+            "warn: feishu target missing (set notifiers.feishu.receive_id, or message the "
+            "bot once with inbound enabled); writing to outbox instead of sending",
+            file=sys.stderr,
+        )
+
+    # ------------------------------------------------------- plain text reply
+
+    def send_text(self, text: str, *, to: str, to_type: str = "chat_id") -> dict:
+        """Send a plain text message (used for gateway confirmations)."""
+        if not (self.app_id and self.app_secret and to):
+            return {"ok": False, "detail": "feishu text: credentials or target missing"}
+        payload = {
+            "receive_id": to,
+            "msg_type": "text",
+            "content": json.dumps({"text": text}, ensure_ascii=False),
+        }
+        if self.dry_run:
+            path = write_outbox(self.outbox_dir, "feishu-text", payload)
+            return {"ok": True, "detail": f"outbox:{path}"}
+        return self._send(payload, to_type)
 
     # -------------------------------------------------------------- real send
 
@@ -155,11 +248,11 @@ class FeishuNotifier:
             raise RuntimeError(f"tenant_access_token failed: {body.get('msg')}")
         return body["tenant_access_token"]
 
-    def _send(self, payload: dict) -> dict:
+    def _send(self, payload: dict, receive_id_type: str | None = None) -> dict:
         try:
             token = self._tenant_token()
             request = urllib.request.Request(
-                f"{SEND_URL}?receive_id_type={self.receive_id_type}",
+                f"{SEND_URL}?receive_id_type={receive_id_type or self.receive_id_type}",
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 headers={
                     "Content-Type": "application/json",

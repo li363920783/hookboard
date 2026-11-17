@@ -134,6 +134,27 @@ class OutboxPayloadTest(unittest.TestCase):
         self.assertEqual(payload["msg_type"], "interactive")
 
 
+    def test_feishu_inbound_card_adds_callback_buttons(self):
+        # With inbound on, the card carries 通过/打回 callbacks (same decide()
+        # path as the web link) plus the two url buttons.
+        with mock.patch.dict(os.environ, {"HUB_OUTBOX": "1"}):
+            notifier = FeishuNotifier({"enabled": True, "inbound": True}, str(self.outbox))
+            notifier.context = self._feishu_context()
+            result = notifier.ask("需要审批", "详情", URL, ["通过", "打回"])
+
+        self.assertTrue(result["ok"])
+        payload = json.loads(self._files()[0].read_text(encoding="utf-8"))
+        card = json.loads(payload["content"])
+        actions = [e for e in card["body"]["elements"] if e["tag"] == "action"][0]["actions"]
+        self.assertEqual([b["type"] for b in actions], ["primary", "danger", "default", "default"])
+        self.assertEqual(
+            actions[0]["behaviors"][0], {"type": "callback", "value": {"token": "token-abc", "index": 0}}
+        )
+        self.assertEqual(
+            actions[1]["behaviors"][0], {"type": "callback", "value": {"token": "token-abc", "index": 1}}
+        )
+        self.assertTrue(actions[2]["multi_url"]["url"].endswith("/a/token-abc"))
+
     def test_feishu_send_uses_configured_receive_id_type(self):
         # Real-send path (creds present, not dry_run): the request URL must carry
         # the configured receive_id_type and the body the configured receive_id —

@@ -27,6 +27,7 @@ def cmd_run(args) -> int:
         f"(db={cfg.db_path}, workers={cfg.workers})",
         flush=True,
     )
+    _start_feishu_inbound(store, engine, cfg)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -35,6 +36,26 @@ def cmd_run(args) -> int:
         engine.stop()
         httpd.server_close()
     return 0
+
+
+def _start_feishu_inbound(store, engine, cfg) -> None:
+    """Opt-in Feishu WebSocket gateway (needs ``pip install 'hookboard[feishu]'``)."""
+    entry = (cfg.notifiers or {}).get("feishu") or {}
+    if not entry.get("inbound"):
+        return
+    from pathlib import Path
+
+    from .feishu_gateway import FeishuGateway
+
+    gateway = FeishuGateway(
+        store,
+        engine,
+        entry,
+        stage=cfg.stages[0],
+        outbox_dir=str(Path(store.path).parent / "outbox"),
+    )
+    if gateway.start():
+        print("feishu inbound: websocket gateway started (long connection)", flush=True)
 
 
 def cmd_create(args) -> int:

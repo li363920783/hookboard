@@ -40,6 +40,7 @@
       "app_secret": "",
       "receive_id_type": "chat_id",
       "receive_id": "",
+      "inbound": false,
       "dry_run": true
     },
     "webhook": {

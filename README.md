@@ -83,7 +83,8 @@ file is `config.example.json` and runs out of the box.
   "agents": {"default": {"type": "shell", "command": "echo done"}},
   "notifiers": {
     "feishu": {"type": "feishu", "enabled": true, "app_id": "", "app_secret": "",
-               "receive_id_type": "chat_id", "receive_id": "", "dry_run": true},
+               "receive_id_type": "chat_id", "receive_id": "", "inbound": false,
+               "dry_run": true},
     "webhook": {"type": "webhook", "url": "https://example.com/hook", "dry_run": true},
     "email": {"type": "email", "host": "smtp.example.com", "port": 465, "tls": "ssl",
               "user": "bot@example.com", "password": "", "from": "bot@example.com",
@@ -167,17 +168,51 @@ only delivers that link to a human. M1 ships **`feishu` (the default approval ch
   `feishu.app_id / app_secret / receive_id`); none are stored in the repo.
 
 `feishu` uses a self-built app: it fetches a `tenant_access_token` and posts an interactive card
-(schema 2.0) with two url buttons — **去处理** (`/a/<token>`) and **打开看板** (`/`). The target is
-config-driven via `receive_id_type` (`chat_id` for a group, `open_id` / `union_id` / `user_id` /
-`email` for a person) plus `receive_id` — the standard Feishu message API, with no identity baked
-into the code. It never uses a long-connection or event subscription to collect approvals; the
-decision always happens on the web page. With missing credentials it logs one warning and falls
-back to the outbox instead of crashing.
+(schema 2.0). The target is config-driven via `receive_id_type` (`chat_id` for a group, `open_id` /
+`union_id` / `user_id` / `email` for a person) plus `receive_id` — the standard Feishu message API,
+with no identity baked into the code. With missing credentials or no target it logs one warning and
+falls back to the outbox instead of crashing.
+
+**Two approval entry points, one state machine.** Every card carries a **去处理** url button
+(`/a/<token>`) plus **打开看板**; the decision is applied by `store.decide()` no matter which door
+it came through. With `inbound` on, the card also gets **通过 / 打回** buttons whose callback hits
+the same `decide()` — same idempotency guard, same event trail. Replaying either one returns
+"already handled" and never advances the task twice.
+
+### Feishu inbound (optional)
+
+Sending cards needs nothing extra. Listening to the bot — so a person can message it once to be
+bound, or send a sentence to create a task, or press 通过 / 打回 on the card — needs the official
+SDK and is strictly opt-in, so the core stays standard-library only:
+
+```bash
+pip install 'hookboard[feishu]'
+```
+
+Then set `"inbound": true` on the `feishu` notifier. In the Feishu console, the app needs the
+**bot** capability, **event subscription in long-connection (WebSocket) mode** — no public URL or
+callback address required — and the `im:message` / `im:message:send_as_bot` permissions. Enable the
+events `im.message.receive_v1` and `card.action.trigger`.
+
+What it does:
+
+- **First contact binds.** Message the bot once (or send `/bind`) and its `sender.open_id` is
+  written to `data/feishu_binding.json`. The notifier uses that target when `receive_id` is empty,
+  so approvals start arriving without editing config.
+- **Say it, it becomes work.** Any plain text message creates a task (`source=feishu`), deduped on
+  the Feishu `message_id`; `/help` lists the commands.
+- **Approve in chat or on the web.** Card buttons and the `/a/<token>` page both call
+  `decide()`; whichever the human uses, the other shows it is already answered.
+- **`allowed_open_ids`** (optional list) restricts who may create tasks or approve. Empty means
+  anyone who can reach the bot — fine for a single-owner instance, set it for shared ones.
+
+`lark-oapi` is imported lazily inside the gateway only; without it, `inbound: true` prints one
+warning and the service runs normally.
 
 ## Validate it yourself
 
 ```bash
-python3 -m unittest discover -s tests -v      # state machine + notifier outbox/dedup/retry tests
+python3 -m unittest discover -s tests -v      # 28 tests: state machine + notifiers + inbound gateway
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 criteria + 5-minute demo + OUTBOX channels; curl + jq
 ```
 
