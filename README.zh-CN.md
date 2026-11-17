@@ -180,6 +180,10 @@ agent 以 `workspace` 为工作目录运行，并拿到 `HUB_PROJECT` / `HUB_WOR
 
 - `headers` 从请求头取值，**优先于** body 里的 `map`。GitHub 用它把事件名当 `kind`、把
   `X-GitHub-Delivery` 当 `external_id`——同一个投递重发自动去重。
+- `map` 的值可以是一个**路径列表**，按顺序取第一个非空值。TAPD 的 `bug::update` 只给
+  `old_title`，`bug::create` 才给 `title`，写成 `"title": ["title", "old_title"]` 两边都覆盖。
+- `accept` 只接收列出的 `kind`，其它事件回 200 后忽略。**接 TAPD 必须配**，否则每次状态变更
+  （包括 agent 回写状态）都会再开一轮。
 - `auth.type`：`hmac_sha256`（对原始请求体算 hex 摘要，带不带 `sha256=` 前缀都认）、`token`
   （头里的值直接比对）或 `query`（连请求头都不发的系统，密钥放 URL：
   `/hooks/tapd?token=...`）。密钥来自 `secret_env` 或内联 `secret`。
@@ -308,7 +312,7 @@ pip install 'hookboard[feishu]'
 ## 自己跑一遍
 
 ```bash
-python3 -m unittest discover -s tests -v      # 69 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验 + 阶段命令
+python3 -m unittest discover -s tests -v      # 72 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验 + 阶段命令
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 条判据 + 5 分钟 demo + OUTBOX 渠道；需要 curl + jq
 ```
 

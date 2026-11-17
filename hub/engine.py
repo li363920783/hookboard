@@ -20,7 +20,7 @@ import traceback
 from pathlib import Path
 
 from .adapters import load_agent, load_notifier
-from .adapters.generic_source import dig
+from .adapters.generic_source import dig_any
 
 
 class Engine:
@@ -192,7 +192,7 @@ class Engine:
             fields = self.project_spec(task).get("fields") or {}
             if fields:
                 for label, path in fields.items():
-                    value = dig(payload, path)
+                    value = dig_any(payload, path)
                     if value not in (None, ""):
                         lines.append(f"**{label}**：{str(value)[:1000]}")
             else:

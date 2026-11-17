@@ -78,6 +78,12 @@ class DigestTestCase(unittest.TestCase):
         self.assertIn("原始内容", digest)
         self.assertIn('"weird"', digest)
 
+    def test_digest_fields_accept_a_path_list(self):
+        self.cfg.projects["tapd"]["fields"] = {"缺陷标题": ["title", "old_title"]}
+        task = self.new_task(payload={"old_title": "TAPD 只在更新事件里给 old_title"})
+        digest = self.engine._task_digest(task)
+        self.assertIn("TAPD 只在更新事件里给 old_title", digest)
+
     def test_approval_detail_contains_the_digest(self):
         task = self.new_task(stage="plan")
         self.engine.process(task)

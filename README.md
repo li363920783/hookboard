@@ -193,6 +193,11 @@ TAPD and home-grown systems are all the same shape:
 
 - `headers` reads values from request headers and **wins over** the body `map`. GitHub uses it to take
   `kind` from the event name and `external_id` from `X-GitHub-Delivery`, so a redelivery dedupes.
+- A `map` value may be a **list of paths** tried in order. TAPD only sends `old_title` on
+  `bug::update` and `title` on `bug::create`; `"title": ["title", "old_title"]` covers both.
+- `accept` only lets the listed `kind` values through; everything else is acknowledged and ignored.
+  Required for TAPD — otherwise every status change, including the agent's own write-back, reopens
+  the task.
 - `auth.type` is `hmac_sha256` (hex digest of the raw body, `sha256=` prefix optional), `token`
   (the header value compared directly), or `query` (for systems that send no headers at all — the
   secret rides in the URL, `/hooks/tapd?token=...`). The secret comes from `secret_env` or inline
@@ -339,7 +344,7 @@ warning and the service runs normally.
 ## Validate it yourself
 
 ```bash
-python3 -m unittest discover -s tests -v      # 69 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
+python3 -m unittest discover -s tests -v      # 72 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 criteria + 5-minute demo + OUTBOX channels; curl + jq
 ```
 

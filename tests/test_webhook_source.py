@@ -42,6 +42,19 @@ class SourceUnitTest(unittest.TestCase):
         self.assertTrue(src.verify(raw, {"X-Hub-Signature-256": sign(raw)[7:]}))
         self.assertFalse(src.verify(b'{"a":2}', {"X-Hub-Signature-256": sign(raw)}))
 
+    def test_map_accepts_a_fallback_path_list(self):
+        src = GenericSource("tapd", {"map": {"title": ["title", "old_title"]}})
+        self.assertEqual(src.parse({"old_title": "旧标题"}, {})["title"], "旧标题")
+        self.assertEqual(src.parse({"title": "新标题"}, {})["title"], "新标题")
+
+    def test_accept_filters_events(self):
+        src = GenericSource(
+            "tapd",
+            {"accept": ["bug::create"], "map": {"kind": "event", "external_id": "id"}},
+        )
+        self.assertIsNone(src.parse({"event": "bug::update", "id": "1"}, {}))
+        self.assertIsNotNone(src.parse({"event": "bug::create", "id": "1"}, {}))
+
     def test_query_auth(self):
         src = GenericSource("tapd", {"auth": {"type": "query", "param": "token", "secret": SECRET}})
         self.assertTrue(src.verify(b"", {}, {"token": [SECRET]}))

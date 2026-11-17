@@ -62,6 +62,21 @@ def dig(body, path: str):
     return current
 
 
+def dig_any(body, paths):
+    """First non-empty value found at any of the dotted paths.
+
+    A config value may be one path or a list tried in order — TAPD sends
+    ``old_title`` on updates and ``title`` on creates, for example.
+    """
+    if isinstance(paths, str):
+        return dig(body, paths)
+    for path in paths or []:
+        value = dig(body, path)
+        if value not in (None, ""):
+            return value
+    return None
+
+
 def _header(headers: dict, name: str) -> str:
     """Case-insensitive header lookup, tolerant of lists and Message objects."""
     if not name:
@@ -88,6 +103,10 @@ class GenericSource:
         self.map = options.get("map") or {}
         self.header_map = {k: v for k, v in (options.get("headers") or {}).items() if v}
         self.auth = dict(options.get("auth") or {})
+        # Only these event values create tasks; anything else is acknowledged
+        # and ignored. Without it, every TAPD status change (including our own
+        # write-back) would re-open the same task.
+        self.accept = {str(e) for e in (options.get("accept") or [])}
 
     # ------------------------------------------------------------ auth
 
@@ -141,13 +160,15 @@ class GenericSource:
                 if value:
                     return value
             path = self.map.get(field)
-            return dig(body, path) if path else None
+            return dig_any(body, path) if path else None
 
         external_id = pick("external_id")
         if external_id is None:
             canonical = json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
             external_id = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
         kind = pick("kind") or "hook"
+        if self.accept and str(kind) not in self.accept:
+            return None
         title = pick("title") or str(external_id)
         try:
             priority = int(pick("priority") or 0)
