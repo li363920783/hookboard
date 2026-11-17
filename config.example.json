@@ -1,0 +1,63 @@
+{
+  "server": {
+    "bind": "127.0.0.1",
+    "port": 8899,
+    "api_token": "change-me",
+    "public_base": "http://127.0.0.1:8899"
+  },
+  "engine": {
+    "workers": 2,
+    "poll_interval": 1
+  },
+  "database": {
+    "path": "./data/hub.db"
+  },
+  "pipeline": {
+    "stages": ["intake", "plan", "dispatch", "work", "review", "finish"],
+    "approve_at": ["plan", "review"]
+  },
+  "sources": {
+    "generic": {
+      "type": "generic",
+      "map": {
+        "kind": "kind",
+        "external_id": "id",
+        "title": "title"
+      }
+    }
+  },
+  "agents": {
+    "default": {
+      "type": "shell",
+      "command": "echo 'hookboard demo: work stage ran'"
+    }
+  },
+  "notifiers": {
+    "feishu": {
+      "type": "feishu",
+      "enabled": true,
+      "app_id": "",
+      "app_secret": "",
+      "chat_id": "",
+      "dry_run": true
+    },
+    "webhook": {
+      "type": "webhook",
+      "url": "https://example.com/hook",
+      "method": "POST",
+      "headers": {},
+      "dry_run": true
+    },
+    "email": {
+      "type": "email",
+      "host": "smtp.example.com",
+      "port": 465,
+      "tls": "ssl",
+      "user": "bot@example.com",
+      "password": "",
+      "from": "bot@example.com",
+      "to": ["you@example.com"],
+      "dry_run": true
+    }
+  }
+}
