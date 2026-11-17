@@ -318,7 +318,9 @@ falls back to the outbox instead of crashing.
 (`/a/<token>`) plus **打开看板**; the decision is applied by `store.decide()` no matter which door
 it came through. With `inbound` on, the card also gets **通过 / 打回** buttons whose callback hits
 the same `decide()` — same idempotency guard, same event trail. Replaying either one returns
-"already handled" and never advances the task twice.
+"already handled" and never advances the task twice. Because the card body is length-capped, the
+`/a/<token>` page also carries a collapsible **完整原始内容** block with the hook payload verbatim,
+so nothing the summary dropped is lost.
 
 ### Feishu inbound (optional)
 
@@ -353,7 +355,7 @@ warning and the service runs normally.
 ## Validate it yourself
 
 ```bash
-python3 -m unittest discover -s tests -v      # 77 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
+python3 -m unittest discover -s tests -v      # 78 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 criteria + 5-minute demo + OUTBOX channels; curl + jq
 ```
 

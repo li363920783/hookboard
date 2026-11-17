@@ -167,6 +167,25 @@ class HookEndpointTest(unittest.TestCase):
         except urllib.error.HTTPError as exc:
             return exc.code, json.loads(exc.read())
 
+    def test_approval_page_shows_the_raw_payload(self):
+        task, _ = self.store.create_task(
+            source="tapd",
+            kind="bug::update",
+            external_id="b-1",
+            title="短标题",
+            stage="plan",
+            payload={"event": "bug::update", "description": "<p>很长的原始描述</p>"},
+        )
+        approval, _ = self.store.create_approval(
+            task_id=task["id"], stage="plan", question="确认？", detail="摘要", options=["通过"]
+        )
+        with urllib.request.urlopen(
+            f"{self.base}/a/{approval['token']}", timeout=5
+        ) as response:
+            page = response.read().decode()
+        self.assertIn("完整原始内容", page)
+        self.assertIn("很长的原始描述", page)
+
     def test_github_delivery_needs_no_shared_token(self):
         payload = {"action": "opened", "pull_request": {"title": "fix the bug"}}
         raw = json.dumps(payload).encode()

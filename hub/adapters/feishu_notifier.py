@@ -123,7 +123,8 @@ class FeishuNotifier:
             f"{header}\n"
             f"阶段: {stage}\n"
             f"等你决定: {question}\n"
-            f"看板数据: {board_api}"
+            f"看板数据: {board_api}\n"
+            "字段超出卡片长度会被截断，完整原文见「去处理」页。"
         )
         if self.inbound:
             markdown += "\n可直接在卡片上点「通过 / 打回」，也可点「去处理」在网页上处理。"

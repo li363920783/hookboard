@@ -291,6 +291,7 @@ outbox，不会崩、不会卡住任务。
 **两个审批入口，一套状态机。** 每张卡片都带**去处理**（`/a/<token>`）和**打开看板**两个链接；
 开着 `inbound` 时再多**通过 / 打回**两个按钮，回调也调同一个 `decide()`——同一套幂等守卫、同一份
 事件留痕。两个入口随便点哪个，另一个都会显示「已处理」，不会重复推进。
+卡片正文会按长度截断，`/a/<token>` 页面底部带「完整原始内容」（钩子报文原样，可折叠），摘要丢的信息都能在那里查。
 
 ### 飞书入站（可选）
 
@@ -320,7 +321,7 @@ pip install 'hookboard[feishu]'
 ## 自己跑一遍
 
 ```bash
-python3 -m unittest discover -s tests -v      # 77 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验 + 阶段命令
+python3 -m unittest discover -s tests -v      # 78 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验 + 阶段命令
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 条判据 + 5 分钟 demo + OUTBOX 渠道；需要 curl + jq
 ```
 

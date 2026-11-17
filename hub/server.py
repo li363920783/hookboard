@@ -439,6 +439,13 @@ textarea {
 }
 .verdict { font-size: 18px; font-weight: 600; color: #4ade80; margin: 14px 0; }
 .verdict.rejected { color: #f87171; }
+details { margin-top: 16px; }
+details summary { cursor: pointer; color: #7dd3fc; font-size: 13px; }
+pre {
+  white-space: pre-wrap; word-break: break-all; font-size: 12px; line-height: 1.5;
+  background: #0d141b; border: 1px solid #2b3d4f; border-radius: 10px;
+  padding: 10px; max-height: 60vh; overflow: auto;
+}
 a { color: #7dd3fc; }
 """
 
@@ -454,6 +461,23 @@ def _page(title: str, inner: str, style_extra: str = "") -> str:
 </head>
 <body><main>{inner}</main></body>
 </html>"""
+
+
+def _raw_payload_block(task: dict | None) -> str:
+    """The hook body verbatim, so a short card summary never hides information."""
+    payload = (task or {}).get("payload")
+    if not payload:
+        return ""
+    try:
+        blob = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
+    except (TypeError, ValueError):
+        blob = str(payload)
+    if len(blob) > 20000:
+        blob = blob[:20000] + "\n… （已截断）"
+    return (
+        "<details><summary>完整原始内容（钩子原样）</summary>"
+        f"<pre>{html.escape(blob)}</pre></details>"
+    )
 
 
 def _approval_page(approval: dict, task: dict | None) -> str:
@@ -473,7 +497,8 @@ def _approval_page(approval: dict, task: dict | None) -> str:
             f"<h1>{question}</h1>"
             f'<p class="verdict">此前已处理</p>'
             f"<p>答复：{answered}</p>"
-            f'<p class="meta">任务 #{task_id} · {task_title} · 阶段 {stage}</p>',
+            f'<p class="meta">任务 #{task_id} · {task_title} · 阶段 {stage}</p>'
+            + _raw_payload_block(task),
         )
 
     buttons = []
@@ -489,7 +514,8 @@ def _approval_page(approval: dict, task: dict | None) -> str:
         f"<h1>{question}</h1>"
         + (f"<p>{detail}</p>" if detail else "")
         + f'<p class="meta">任务 #{task_id} · {task_title} · 阶段 {stage}</p>'
-        f'<form method="post" action="/a/{token}" '
+        + _raw_payload_block(task)
+        + f'<form method="post" action="/a/{token}" '
         f"onsubmit=\"this.querySelectorAll('button').forEach(function(b){{b.disabled=true}})\">"
         f'<div class="options">{"".join(buttons)}</div>'
         f"<label>或者直接说</label>"
