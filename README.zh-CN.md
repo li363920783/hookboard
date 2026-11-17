@@ -72,6 +72,8 @@ curl -s -X POST http://127.0.0.1:8899/hooks/generic \
     "stages": ["intake", "plan", "dispatch", "work", "review", "finish"],
     "approve_at": ["plan", "review"]
   },
+  "routing": {"field": "project"},
+  "projects": {},
   "sources": {"generic": {"type": "generic",
              "map": {"kind": "kind", "external_id": "id", "title": "title"}}},
   "agents": {"default": {"type": "shell", "command": "echo done"}},
@@ -95,6 +97,39 @@ curl -s -X POST http://127.0.0.1:8899/hooks/generic \
 环境变量可覆盖配置文件（优先级更高）：
 `HUB_CONFIG`、`HUB_BIND`、`HUB_PORT`、`HUB_API_TOKEN`、`HUB_PUBLIC_BASE`、`HUB_WORKERS`、
 `HUB_POLL_INTERVAL`、`HUB_DB`、`HUB_OUTBOX`、`HUB_EMAIL_PASSWORD`。
+
+## 项目与路由
+
+**项目**是一个配置对象，绑定「在哪跑、谁来批、发到哪」。每个人的项目和规则都不一样，所以全是配置，
+代码里不含任何人的身份和工作区路径：
+
+```json
+"projects": {
+  "followup": {
+    "agent": "cc",
+    "workspace": "/home/alice/work/followup",
+    "approve_at": ["plan", "review"],
+    "notifiers": ["feishu_team"]
+  },
+  "shop": {
+    "agent": "cc",
+    "workspace": "/home/alice/work/mall",
+    "approve_at": ["review"]
+  }
+}
+```
+
+没写的键回落到全局设置。`"approve_at": []` 表示这个项目不设闸门；`"notifiers": []` 表示不通知。
+shell agent 以 `workspace` 为工作目录运行，并拿到 `HUB_PROJECT` / `HUB_WORKSPACE`。
+
+**钩子怎么找到自己的项目**——只有两种，刻意不做规则 DSL（`when/then` 语言最后会长成半个工作流引擎）：
+
+| 配置 | 行为 |
+|---|---|
+| `"routing": {"field": "project"}` | 直接从请求体读 `body["project"]`——零代码，覆盖大多数系统 |
+| `"routing": {"python": "myrules:route"}` | 调你自己写的 `route(body) -> str`（约 20 行），逻辑和风格都由你定 |
+
+项目名写错返回 HTTP 400，明着失败，不会悄悄按错误的规则跑。没配置 `projects` 时路由被忽略。
 
 ## HTTP API
 
@@ -192,7 +227,7 @@ pip install 'hookboard[feishu]'
 ## 自己跑一遍
 
 ```bash
-python3 -m unittest discover -s tests -v      # 28 个用例：状态机 + 通知 + 入站网关
+python3 -m unittest discover -s tests -v      # 39 个用例：状态机 + 通知 + 入站网关 + 路由
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 条判据 + 5 分钟 demo + OUTBOX 渠道；需要 curl + jq
 ```
 

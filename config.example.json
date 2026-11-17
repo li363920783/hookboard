@@ -16,6 +16,10 @@
     "stages": ["intake", "plan", "dispatch", "work", "review", "finish"],
     "approve_at": ["plan", "review"]
   },
+  "routing": {
+    "field": "project"
+  },
+  "projects": {},
   "sources": {
     "generic": {
       "type": "generic",

@@ -113,12 +113,13 @@ class OutboxPayloadTest(unittest.TestCase):
         self.assertEqual(card["schema"], "2.0")
         elements = card["body"]["elements"]
         self.assertEqual(elements[0]["tag"], "markdown")
-        self.assertEqual(elements[1]["tag"], "action")
-        buttons = elements[1]["actions"]
+        # Schema 2.0 has no `action` container: buttons are top-level elements.
+        buttons = [e for e in elements if e["tag"] == "button"]
         self.assertEqual(len(buttons), 2)
         self.assertTrue(all(b["type"] == "default" for b in buttons))
-        self.assertIn("/a/token-abc", buttons[0]["multi_url"]["url"])
-        self.assertEqual(buttons[1]["multi_url"]["url"], "http://127.0.0.1:8899/")
+        urls = [b["behaviors"][0]["default_url"] for b in buttons]
+        self.assertIn("/a/token-abc", urls[0])
+        self.assertEqual(urls[1], "http://127.0.0.1:8899/")
 
     def test_feishu_missing_credentials_does_not_crash(self):
         # No HUB_OUTBOX, no dry_run, empty credentials: must warn + write outbox,
@@ -145,15 +146,15 @@ class OutboxPayloadTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         payload = json.loads(self._files()[0].read_text(encoding="utf-8"))
         card = json.loads(payload["content"])
-        actions = [e for e in card["body"]["elements"] if e["tag"] == "action"][0]["actions"]
-        self.assertEqual([b["type"] for b in actions], ["primary", "danger", "default", "default"])
+        buttons = [e for e in card["body"]["elements"] if e["tag"] == "button"]
+        self.assertEqual([b["type"] for b in buttons], ["primary", "danger", "default", "default"])
         self.assertEqual(
-            actions[0]["behaviors"][0], {"type": "callback", "value": {"token": "token-abc", "index": 0}}
+            buttons[0]["behaviors"][0], {"type": "callback", "value": {"token": "token-abc", "index": 0}}
         )
         self.assertEqual(
-            actions[1]["behaviors"][0], {"type": "callback", "value": {"token": "token-abc", "index": 1}}
+            buttons[1]["behaviors"][0], {"type": "callback", "value": {"token": "token-abc", "index": 1}}
         )
-        self.assertTrue(actions[2]["multi_url"]["url"].endswith("/a/token-abc"))
+        self.assertTrue(buttons[2]["behaviors"][0]["default_url"].endswith("/a/token-abc"))
 
     def test_feishu_send_uses_configured_receive_id_type(self):
         # Real-send path (creds present, not dry_run): the request URL must carry

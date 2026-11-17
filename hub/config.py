@@ -33,6 +33,8 @@ class Config:
     sources: dict[str, dict] = field(default_factory=dict)
     agents: dict[str, dict] = field(default_factory=dict)
     notifiers: dict[str, dict] = field(default_factory=dict)
+    projects: dict[str, dict] = field(default_factory=dict)
+    routing: dict = field(default_factory=dict)
 
 
 def _env(name: str, default, cast=str):
@@ -72,6 +74,8 @@ def load(path: str | os.PathLike | None = None) -> Config:
         cfg.sources = dict(raw.get("sources") or {})
         cfg.agents = dict(raw.get("agents") or {})
         cfg.notifiers = dict(raw.get("notifiers") or {})
+        cfg.projects = dict(raw.get("projects") or {})
+        cfg.routing = dict(raw.get("routing") or {})
     elif explicit:
         raise FileNotFoundError(f"config file not found: {file_path}")
 

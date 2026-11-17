@@ -252,8 +252,11 @@ for m in feishu:
     assert "/api/board" in content, "feishu content missing board link (/api/board)"
     card = json.loads(content)
     assert card["schema"] == "2.0"
-    actions = [e for e in card["body"]["elements"] if e["tag"] == "action"][0]["actions"]
-    assert len(actions) == 2 and all(b["type"] == "default" for b in actions)
+    # Schema 2.0: no `action` container, buttons are top-level elements.
+    buttons = [e for e in card["body"]["elements"] if e["tag"] == "button"]
+    assert len(buttons) == 2 and all(b["type"] == "default" for b in buttons), buttons
+    urls = [b["behaviors"][0]["default_url"] for b in buttons]
+    assert any("/a/" in u for u in urls), urls
 print(f"feishu OK: {len(feishu)} interactive card(s), content has /a/ and /api/board")
 PY
 pass "10. feishu outbox: msg_type=interactive, content greps /a/ and /api/board, schema 2.0, 2 buttons"

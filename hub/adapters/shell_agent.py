@@ -24,6 +24,9 @@ class ShellAgent:
         self.cwd = options.get("cwd")
 
     def start(self, task: dict, prompt: str) -> dict:
+        # A project's `workspace` overrides the agent's own cwd, so different
+        # projects can run the same agent in different checkouts.
+        workspace = task.get("workspace") or self.cwd
         env = dict(os.environ)
         env.update(
             {
@@ -31,6 +34,8 @@ class ShellAgent:
                 "HUB_TASK_TITLE": task.get("title") or "",
                 "HUB_TASK_STAGE": task.get("stage") or "",
                 "HUB_TASK_NOTE": task.get("note") or "",
+                "HUB_PROJECT": task.get("project") or "",
+                "HUB_WORKSPACE": workspace or "",
                 "HUB_PROMPT": prompt,
             }
         )
@@ -41,7 +46,7 @@ class ShellAgent:
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
-                cwd=self.cwd,
+                cwd=workspace,
                 env=env,
             )
         except subprocess.TimeoutExpired:

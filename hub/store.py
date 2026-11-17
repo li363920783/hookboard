@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     external_id   TEXT    NOT NULL,
     title         TEXT    NOT NULL DEFAULT '',
     lane          TEXT    NOT NULL DEFAULT '',
+    project       TEXT    NOT NULL DEFAULT '',
     status        TEXT    NOT NULL DEFAULT 'pending',
     stage         TEXT    NOT NULL,
     priority      INTEGER NOT NULL DEFAULT 0,
@@ -115,6 +116,10 @@ class Store:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as conn:
             conn.executescript(SCHEMA)
+            # Migration for databases created before `project` existed.
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
+            if "project" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 
     @contextmanager
     def _conn(self):
@@ -148,6 +153,7 @@ class Store:
         lane: str = "",
         priority: int = 0,
         payload: dict | None = None,
+        project: str = "",
     ) -> tuple[dict, bool]:
         """Insert a task, or wake the existing one with the same unique key.
 
@@ -158,9 +164,9 @@ class Store:
             cur = conn.execute(
                 """
                 INSERT OR IGNORE INTO tasks
-                    (source, kind, external_id, title, lane, status, stage,
+                    (source, kind, external_id, title, lane, project, status, stage,
                      priority, payload_json, attempts, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, 0, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, 0, ?, ?)
                 """,
                 (
                     source,
@@ -168,6 +174,7 @@ class Store:
                     external_id,
                     title,
                     lane,
+                    project,
                     stage,
                     int(priority),
                     json.dumps(payload or {}, ensure_ascii=False),

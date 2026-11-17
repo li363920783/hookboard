@@ -37,8 +37,43 @@ class Engine:
                 for name, entry in (config.notifiers or {}).items()
             }
         self.handlers = dict(handlers or {})
+        self.projects = dict(getattr(config, "projects", None) or {})
+        self._agents: dict = {}
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
+
+    # -------------------------------------------------------------- projects
+
+    def project_spec(self, task: dict) -> dict:
+        """Per-project overrides; an unset/unknown project means global defaults."""
+        name = task.get("project") or ("default" if "default" in self.projects else "")
+        return self.projects.get(name) or {}
+
+    def approve_stages(self, task: dict) -> set:
+        spec = self.project_spec(task)
+        # An explicit empty list means "this project has no gates" — only a
+        # missing key falls back to the global pipeline.
+        if spec.get("approve_at") is not None:
+            return set(spec["approve_at"])
+        return set(self.approve_at)
+
+    def agent_for(self, task: dict):
+        name = self.project_spec(task).get("agent")
+        if not name:
+            return self.agent
+        if name not in self._agents:
+            entry = (self.config.agents or {}).get(str(name))
+            if entry is None:
+                raise ValueError(f"project names unknown agent {name!r}")
+            self._agents[str(name)] = load_agent(entry)
+        return self._agents[str(name)]
+
+    def dispatch_targets(self, task: dict) -> dict:
+        """Notifiers this project uses; no list means every configured one."""
+        spec = self.project_spec(task)
+        if spec.get("notifiers") is None:
+            return dict(self.notifiers)
+        return {name: self.notifiers[name] for name in spec["notifiers"] if name in self.notifiers}
 
     # --------------------------------------------------------- pipeline view
 
@@ -87,7 +122,7 @@ class Engine:
         stage = task["stage"]
         self.store.add_event(task["id"], "stage", stage)
 
-        if stage in self.approve_at:
+        if stage in self.approve_stages(task):
             self._gate(task)
             return
 
@@ -123,12 +158,17 @@ class Engine:
         prompt = "\n\n".join(
             part for part in (task.get("title"), task.get("note")) if part
         ).strip()
-        result = self.agent.start(dict(task), prompt)
+        agent = self.agent_for(task)
+        payload = dict(task)
+        workspace = self.project_spec(task).get("workspace")
+        if workspace:
+            payload["workspace"] = str(workspace)
+        result = agent.start(payload, prompt)
         ok = bool(result.get("ok"))
         following = self.next_stage(task["stage"])
         return {
             "ok": ok,
-            "agent": self.agent.name,
+            "agent": agent.name,
             "session": result.get("session"),
             "output": result.get("output") or result.get("error") or "",
             "status": "pending" if ok else "failed",
@@ -210,7 +250,7 @@ class Engine:
         title = approval["question"]
         body = approval["detail"] or task.get("title") or ""
         options = approval["options"]
-        for name, notifier in self.notifiers.items():
+        for name, notifier in self.dispatch_targets(task).items():
             if not self.store.claim_notification(task["id"], approval["stage"], name):
                 continue  # already sent for this (task, stage, channel)
             notifier.context = {

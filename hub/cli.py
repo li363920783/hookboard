@@ -72,6 +72,7 @@ def cmd_create(args) -> int:
         title=args.title or external_id,
         priority=args.priority,
         payload=payload,
+        project=args.project,
         stage=cfg.stages[0],
     )
     print(
@@ -123,6 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--external-id", default="")
     create.add_argument("--priority", type=int, default=0)
     create.add_argument("--payload", default="", help="JSON object stored with the task")
+    create.add_argument("--project", default="", help="project name from config.projects")
     create.set_defaults(func=cmd_create)
 
     status = sub.add_parser(

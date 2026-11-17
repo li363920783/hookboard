@@ -110,6 +110,8 @@
     background: #0d141b; border: 1px solid #2b3d4f; border-radius: 8px;
   }
   button.send { width: 100%; margin-top: 6px; }
+  button:disabled { opacity: .55; cursor: progress; }
+  .approval .q.done { color: var(--dim); }
   .empty { border: 1px dashed var(--line); border-radius: 12px; color: var(--dim); font-size: 12px; padding: 12px; text-align: center; }
   #toast {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
@@ -261,7 +263,16 @@
     }
   }
 
-  async function decide(token, payload) {
+  var inflight = {}; // token -> true; blocks double submits
+
+  async function decide(token, payload, trigger) {
+    if (inflight[token]) return; // already submitting this approval
+    inflight[token] = true;
+    var box = trigger ? trigger.closest(".approval") : null;
+    var buttons = box ? Array.prototype.slice.call(box.querySelectorAll("button")) : [];
+    var label = trigger ? trigger.textContent : "";
+    buttons.forEach(function (b) { b.disabled = true; });
+    if (trigger) trigger.textContent = "提交中…";
     try {
       var response = await fetch("/a/" + encodeURIComponent(token), {
         method: "POST",
@@ -270,9 +281,18 @@
       });
       var data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || ("HTTP " + response.status));
+      if (data.changed === false) {
+        toast("这条已经处理过了");
+      } else {
+        toast(payload.index === 1 ? "已打回" : "已通过");
+      }
+      if (box) box.innerHTML = '<p class="q done">已提交，正在刷新…</p>';
     } catch (err) {
       toast("提交失败：" + err.message);
+      buttons.forEach(function (b) { b.disabled = false; });
+      if (trigger) trigger.textContent = label;
     } finally {
+      delete inflight[token];
       lastJson = "";
       refresh();
     }
@@ -281,7 +301,7 @@
   board.addEventListener("click", function (event) {
     var button = event.target.closest("[data-decide]");
     if (button) {
-      decide(button.dataset.token, { index: Number(button.dataset.decide) });
+      decide(button.dataset.token, { index: Number(button.dataset.decide) }, button);
       return;
     }
     var send = event.target.closest("[data-send]");
@@ -289,7 +309,7 @@
       var box = send.closest(".approval").querySelector("textarea");
       var text = box ? box.value.trim() : "";
       if (!text) { toast("先写一句再提交"); return; }
-      decide(send.dataset.token, { text: text });
+      decide(send.dataset.token, { text: text }, send);
     }
   });
 

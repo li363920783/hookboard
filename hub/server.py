@@ -18,7 +18,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__
+from . import __version__, routing
 from .adapters import load_source
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
@@ -92,6 +92,16 @@ class HubServer:
             "generated_at": time.time(),
         }
 
+    def resolve_project(self, body: dict) -> str:
+        """Project name for an incoming body; unknown names are a hard error."""
+        if not self.config.projects:
+            return ""  # no projects configured -> project is meaningless, not an error
+        name = routing.resolve(self.config, body)
+        if name and name not in self.config.projects:
+            known = ", ".join(sorted(self.config.projects)) or "(none configured)"
+            raise ValueError(f"unknown project {name!r}; configured: {known}")
+        return name
+
     def create_task(self, body: dict) -> dict:
         external_id = str(body.get("external_id") or uuid.uuid4().hex)
         task, created = self.store.create_task(
@@ -102,6 +112,7 @@ class HubServer:
             lane=str(body.get("lane") or ""),
             priority=int(body.get("priority") or 0),
             payload=body.get("payload") or {},
+            project=self.resolve_project(body),
             stage=self.config.stages[0],
         )
         return {"ok": True, "task_id": task["id"], "created": created, "task": task}
@@ -277,7 +288,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/tasks":
             body = self._body()
-            return self._json(hub.create_task(body if isinstance(body, dict) else {}))
+            try:
+                return self._json(hub.create_task(body if isinstance(body, dict) else {}))
+            except (ValueError, ImportError) as exc:
+                return self._json({"ok": False, "error": str(exc)}, 400)
 
         if path.startswith("/api/tasks/"):
             parts = path.strip("/").split("/")
@@ -309,6 +323,10 @@ class Handler(BaseHTTPRequestHandler):
         )
         if not parsed:
             return self._json({"ok": True, "task_id": None, "created": False, "ignored": True})
+        try:
+            project = hub.resolve_project(body if isinstance(body, dict) else {})
+        except (ValueError, ImportError) as exc:
+            return self._json({"ok": False, "error": str(exc)}, 400)
         task, created = hub.store.create_task(
             source=str(parsed.get("source") or name),
             kind=str(parsed.get("kind") or "hook"),
@@ -316,6 +334,7 @@ class Handler(BaseHTTPRequestHandler):
             title=str(parsed.get("title") or parsed["external_id"]),
             priority=int(parsed.get("priority") or 0),
             payload=parsed.get("payload") or body,
+            project=project,
             stage=hub.config.stages[0],
         )
         return self._json({"ok": True, "task_id": task["id"], "created": created, "task": task})
@@ -447,7 +466,8 @@ def _approval_page(approval: dict, task: dict | None) -> str:
         f"<h1>{question}</h1>"
         + (f"<p>{detail}</p>" if detail else "")
         + f'<p class="meta">任务 #{task_id} · {task_title} · 阶段 {stage}</p>'
-        f'<form method="post" action="/a/{token}">'
+        f'<form method="post" action="/a/{token}" '
+        f"onsubmit=\"this.querySelectorAll('button').forEach(function(b){{b.disabled=true}})\">"
         f'<div class="options">{"".join(buttons)}</div>'
         f"<label>或者直接说</label>"
         f'<textarea name="text" rows="3" placeholder="补充意见（提交即视为通过）"></textarea>'

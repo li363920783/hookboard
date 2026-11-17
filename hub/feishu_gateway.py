@@ -186,22 +186,61 @@ class FeishuGateway:
             P2CardActionTriggerResponse,
         )
 
+        def respond(toast_type: str, toast: str, card: dict | None = None):
+            payload = {"toast": {"type": toast_type, "content": toast}}
+            if card is not None:
+                # Card 2.0 callback response replaces the card in place, so the
+                # person sees the outcome instead of a still-clickable button.
+                payload["card"] = {"type": "raw", "data": card}
+            return P2CardActionTriggerResponse(payload)
+
         action = parse_card_action(data)
         if action is None:
-            return P2CardActionTriggerResponse({"toast": {"type": "info", "content": "无法识别该操作"}})
+            return respond("info", "无法识别该操作")
         if not self._allowed(action["open_id"]):
-            return P2CardActionTriggerResponse({"toast": {"type": "error", "content": "无权审批"}})
+            return respond("error", "无权审批")
 
+        print(
+            f"[feishu] card action token={action['token'][:8]}… index={action['index']} "
+            f"by={action['open_id']}",
+            flush=True,
+        )
         # Same entry point as POST /a/{token}: one state machine, one idempotency
         # guard, one event trail — the card is just another front door.
         approval, task, changed = self.engine.decide(
             action["token"], index=action["index"], by=f"feishu:{action['open_id']}"
         )
         if approval is None:
-            return P2CardActionTriggerResponse({"toast": {"type": "error", "content": "审批不存在"}})
+            return respond("error", "审批不存在")
         if not changed:
-            return P2CardActionTriggerResponse({"toast": {"type": "info", "content": "这条已处理过"}})
+            return respond(
+                "info",
+                "这条已处理过",
+                self._result_card(task, approval, "已处理过", action["open_id"]),
+            )
         label = "已通过" if action["index"] == 0 else "已打回"
-        return P2CardActionTriggerResponse(
-            {"toast": {"type": "success", "content": f"{label}（任务 #{task['id']}）"}}
+        return respond(
+            "success",
+            f"{label}（任务 #{task['id']}）",
+            self._result_card(task, approval, label, action["open_id"]),
         )
+
+    @staticmethod
+    def _result_card(task: dict, approval: dict, label: str, open_id: str) -> dict:
+        who = open_id[-6:] if open_id else "?"
+        return {
+            "schema": "2.0",
+            "header": {"title": {"tag": "plain_text", "content": "Hookboard 审批"}},
+            "body": {
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "content": (
+                            f"**{task.get('title') or '任务'}**\n"
+                            f"任务 #{task.get('id')} · 阶段 {approval.get('stage')}\n\n"
+                            f"**{label}** · 处理人 …{who}"
+                        ),
+                    }
+                ]
+            },
+        }

@@ -78,6 +78,8 @@ file is `config.example.json` and runs out of the box.
     "stages": ["intake", "plan", "dispatch", "work", "review", "finish"],
     "approve_at": ["plan", "review"]
   },
+  "routing": {"field": "project"},
+  "projects": {},
   "sources": {"generic": {"type": "generic",
              "map": {"kind": "kind", "external_id": "id", "title": "title"}}},
   "agents": {"default": {"type": "shell", "command": "echo done"}},
@@ -101,6 +103,43 @@ file is `config.example.json` and runs out of the box.
 Environment overrides (win over the file):
 `HUB_CONFIG`, `HUB_BIND`, `HUB_PORT`, `HUB_API_TOKEN`, `HUB_PUBLIC_BASE`, `HUB_WORKERS`,
 `HUB_POLL_INTERVAL`, `HUB_DB`, `HUB_OUTBOX`, `HUB_EMAIL_PASSWORD`.
+
+## Projects and routing
+
+A **project** is a config object binding where a task runs, who gets asked, and on which channels.
+Every person's projects and rules differ, so all of it is config — no identity and no workspace path
+is baked into the code:
+
+```json
+"projects": {
+  "followup": {
+    "agent": "cc",
+    "workspace": "/home/alice/work/followup",
+    "approve_at": ["plan", "review"],
+    "notifiers": ["feishu_team"]
+  },
+  "shop": {
+    "agent": "cc",
+    "workspace": "/home/alice/work/mall",
+    "approve_at": ["review"]
+  }
+}
+```
+
+Omitted keys fall back to the global settings. `"approve_at": []` means this project has no gates;
+`"notifiers": []` means it never notifies. The shell agent runs with `cwd=workspace` and receives
+`HUB_PROJECT` / `HUB_WORKSPACE`.
+
+**How an incoming hook finds its project** — two shapes, and deliberately no rule DSL (a `when/then`
+language grows into half a workflow engine):
+
+| Config | What happens |
+|---|---|
+| `"routing": {"field": "project"}` | Read `body["project"]` straight out of the hook — zero code, covers most systems |
+| `"routing": {"python": "myrules:route"}` | Call your own `route(body) -> str` (about 20 lines) in your deployment, your logic, your style |
+
+An unknown project name is rejected with HTTP 400 so a typo fails loudly instead of silently running
+under the wrong rules. With no `projects` configured, routing is ignored.
 
 ## HTTP API
 
@@ -212,7 +251,7 @@ warning and the service runs normally.
 ## Validate it yourself
 
 ```bash
-python3 -m unittest discover -s tests -v      # 28 tests: state machine + notifiers + inbound gateway
+python3 -m unittest discover -s tests -v      # 39 tests: state machine + notifiers + inbound gateway + routing
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 criteria + 5-minute demo + OUTBOX channels; curl + jq
 ```
 

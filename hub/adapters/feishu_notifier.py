@@ -120,7 +120,21 @@ class FeishuNotifier:
             f"看板数据: {board_api}"
         )
         if self.inbound:
-            actions = [
+            markdown += "\n可直接在卡片上点「通过 / 打回」，也可点「去处理」在网页上处理。"
+
+        # Card schema 2.0 dropped the `action` container (Feishu rejects it with
+        # 230099 "unsupported tag action"); buttons are top-level elements now.
+        def open_url_button(label: str, url: str) -> dict:
+            return {
+                "tag": "button",
+                "type": "default",
+                "text": {"tag": "plain_text", "content": label},
+                "behaviors": [{"type": "open_url", "default_url": url}],
+            }
+
+        elements = [{"tag": "markdown", "content": markdown}]
+        if self.inbound:
+            elements += [
                 {
                     "tag": "button",
                     "type": "primary",
@@ -133,44 +147,15 @@ class FeishuNotifier:
                     "text": {"tag": "plain_text", "content": "打回"},
                     "behaviors": [{"type": "callback", "value": {"token": token, "index": 1}}],
                 },
-                {
-                    "tag": "button",
-                    "type": "default",
-                    "text": {"tag": "plain_text", "content": "去处理"},
-                    "multi_url": {"url": approval_url},
-                },
-                {
-                    "tag": "button",
-                    "type": "default",
-                    "text": {"tag": "plain_text", "content": "打开看板"},
-                    "multi_url": {"url": board_url},
-                },
             ]
-            markdown += "\n可直接在卡片上点「通过 / 打回」，也可点「去处理」在网页上处理。"
-        else:
-            actions = [
-                {
-                    "tag": "button",
-                    "type": "default",
-                    "text": {"tag": "plain_text", "content": "去处理"},
-                    "multi_url": {"url": approval_url},
-                },
-                {
-                    "tag": "button",
-                    "type": "default",
-                    "text": {"tag": "plain_text", "content": "打开看板"},
-                    "multi_url": {"url": board_url},
-                },
-            ]
+        elements += [
+            open_url_button("去处理", approval_url),
+            open_url_button("打开看板", board_url),
+        ]
         return {
             "schema": "2.0",
             "header": {"title": {"tag": "plain_text", "content": "Hookboard 审批"}},
-            "body": {
-                "elements": [
-                    {"tag": "markdown", "content": markdown},
-                    {"tag": "action", "actions": actions},
-                ]
-            },
+            "body": {"elements": elements},
         }
 
     def _request_body(self, title: str, url: str) -> dict:
