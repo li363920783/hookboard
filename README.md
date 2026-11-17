@@ -127,8 +127,32 @@ is baked into the code:
 ```
 
 Omitted keys fall back to the global settings. `"approve_at": []` means this project has no gates;
-`"notifiers": []` means it never notifies. The shell agent runs with `cwd=workspace` and receives
+`"notifiers": []` means it never notifies. The agent runs with `cwd=workspace` and receives
 `HUB_PROJECT` / `HUB_WORKSPACE`.
+
+A project also decides **what the card shows** and **what a stage runs**:
+
+```json
+"projects": {
+  "tapd": {
+    "agent": "t3",
+    "workspace": "/home/alice/work/shop",
+    "fields": {"缺陷标题": "bug.title", "严重程度": "bug.severity", "链接": "bug.url"},
+    "steps": {
+      "finish": "python3 ~/bin/tapd_update.py --id \"$HUB_EXTERNAL_ID\" --status resolved"
+    }
+  }
+}
+```
+
+- `fields` picks values out of the hook payload for the **approval card body** and the **agent
+  prompt** (dotted paths, same as the source `map`). Without it the raw payload is included, first
+  1500 characters.
+- `steps` runs a command at a stage through the same `CommandAgent` — every `HUB_*` variable is set
+  (`HUB_EXTERNAL_ID`, `HUB_SOURCE`, `HUB_KIND`, `HUB_PAYLOAD` included), the exit code decides
+  whether the pipeline advances. Releases and ticket write-backs go here.
+- Gate stages never run `steps` (a human answers first).
+- The agent prompt is now title + note + that digest, not just the title.
 
 **How an incoming hook finds its project** — two shapes, and deliberately no rule DSL (a `when/then`
 language grows into half a workflow engine):
@@ -137,6 +161,7 @@ language grows into half a workflow engine):
 |---|---|
 | `"routing": {"field": "project"}` | Read `body["project"]` straight out of the hook — zero code, covers most systems |
 | `"routing": {"python": "myrules:route"}` | Call your own `route(body) -> str` (about 20 lines) in your deployment, your logic, your style |
+| `"sources": {"tapd": {"project": "tapd"}}` | This webhook always lands in that project; a `project` in the body still wins |
 
 An unknown project name is rejected with HTTP 400 so a typo fails loudly instead of silently running
 under the wrong rules. With no `projects` configured, routing is ignored.
@@ -168,11 +193,21 @@ TAPD and home-grown systems are all the same shape:
 
 - `headers` reads values from request headers and **wins over** the body `map`. GitHub uses it to take
   `kind` from the event name and `external_id` from `X-GitHub-Delivery`, so a redelivery dedupes.
-- `auth.type` is `hmac_sha256` (hex digest of the raw body, `sha256=` prefix optional) or `token`
-  (the header value compared directly). The secret comes from `secret_env` or inline `secret`.
+- `auth.type` is `hmac_sha256` (hex digest of the raw body, `sha256=` prefix optional), `token`
+  (the header value compared directly), or `query` (for systems that send no headers at all — the
+  secret rides in the URL, `/hooks/tapd?token=...`). The secret comes from `secret_env` or inline
+  `secret`.
+- `project`: the project this source feeds. TAPD payloads carry no project field, so this is how
+  they route; a `project` in the body still wins.
 - Configured `auth` with no secret available rejects **everything** with 401 (fail closed).
 - A source with `auth` no longer requires `X-Hub-Token`; sources without it still do, and an
   unknown source must still pass the global token.
+
+**Do not guess field names for TAPD or a similar system.** Configure a lenient source (`map` may be
+empty), point its webhook at `/hooks/tapd`, fire one real event, then read the stored `payload` from
+`GET /api/tasks/{id}` and fill in `map` and the project's `fields`. A form-encoded
+(`application/x-www-form-urlencoded`) delivery is accepted too; confirm the real auth header from
+that same request before setting `auth`.
 
 ## HTTP API
 
@@ -304,7 +339,7 @@ warning and the service runs normally.
 ## Validate it yourself
 
 ```bash
-python3 -m unittest discover -s tests -v      # 59 tests: state machine + notifiers + inbound gateway + routing + webhook auth
+python3 -m unittest discover -s tests -v      # 69 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 criteria + 5-minute demo + OUTBOX channels; curl + jq
 ```
 

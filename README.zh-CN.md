@@ -120,7 +120,29 @@ curl -s -X POST http://127.0.0.1:8899/hooks/generic \
 ```
 
 没写的键回落到全局设置。`"approve_at": []` 表示这个项目不设闸门；`"notifiers": []` 表示不通知。
-shell agent 以 `workspace` 为工作目录运行，并拿到 `HUB_PROJECT` / `HUB_WORKSPACE`。
+agent 以 `workspace` 为工作目录运行，并拿到 `HUB_PROJECT` / `HUB_WORKSPACE`。
+
+项目还能决定**卡片上显示什么**和**某个阶段跑哪条命令**：
+
+```json
+"projects": {
+  "tapd": {
+    "agent": "t3",
+    "workspace": "/home/alice/work/shop",
+    "fields": {"缺陷标题": "bug.title", "严重程度": "bug.severity", "链接": "bug.url"},
+    "steps": {
+      "finish": "python3 ~/bin/tapd_update.py --id \"$HUB_EXTERNAL_ID\" --status resolved"
+    }
+  }
+}
+```
+
+- `fields`：从钩子 payload 里挑字段，渲染成**审批卡片正文**和 **agent 提示词**（点号路径，和 source
+  的 `map` 是同一套）。不配就把整段 payload 截前 1500 字符带上。
+- `steps`：某个阶段要跑的命令，复用 `CommandAgent`——`HUB_*` 全在（含 `HUB_EXTERNAL_ID`、
+  `HUB_SOURCE`、`HUB_KIND`、`HUB_PAYLOAD`），退出码决定继续还是失败。发版、回写工单系统都放这里。
+- 审批阶段不跑 `steps`（先等人点通过）。
+- agent 的提示词是「标题 + note + 上面那份摘要」，不再是光秃秃一个标题。
 
 **钩子怎么找到自己的项目**——只有两种，刻意不做规则 DSL（`when/then` 语言最后会长成半个工作流引擎）：
 
@@ -128,6 +150,7 @@ shell agent 以 `workspace` 为工作目录运行，并拿到 `HUB_PROJECT` / `H
 |---|---|
 | `"routing": {"field": "project"}` | 直接从请求体读 `body["project"]`——零代码，覆盖大多数系统 |
 | `"routing": {"python": "myrules:route"}` | 调你自己写的 `route(body) -> str`（约 20 行），逻辑和风格都由你定 |
+| `"sources": {"tapd": {"project": "tapd"}}` | 这个 webhook 固定落某个项目；body 里带 `project` 时仍以 body 为准 |
 
 项目名写错返回 HTTP 400，明着失败，不会悄悄按错误的规则跑。没配置 `projects` 时路由被忽略。
 
@@ -157,10 +180,18 @@ shell agent 以 `workspace` 为工作目录运行，并拿到 `HUB_PROJECT` / `H
 
 - `headers` 从请求头取值，**优先于** body 里的 `map`。GitHub 用它把事件名当 `kind`、把
   `X-GitHub-Delivery` 当 `external_id`——同一个投递重发自动去重。
-- `auth.type`：`hmac_sha256`（对原始请求体算 hex 摘要，带不带 `sha256=` 前缀都认）或 `token`
-  （头里的值直接比对）。密钥来自 `secret_env` 或内联 `secret`。
+- `auth.type`：`hmac_sha256`（对原始请求体算 hex 摘要，带不带 `sha256=` 前缀都认）、`token`
+  （头里的值直接比对）或 `query`（连请求头都不发的系统，密钥放 URL：
+  `/hooks/tapd?token=...`）。密钥来自 `secret_env` 或内联 `secret`。
+- `project`：这个 source 默认落到哪个项目。TAPD 的推送里没有 project 字段，靠这条路由；
+  body 里带 project 时仍以 body 为准。
 - 配了 `auth` 但拿不到密钥时**一律 401**（fail closed），不会退化成不校验。
 - 配了 `auth` 的 URL 不再要求 `X-Hub-Token`；没配的照旧要求，未知 source 也要先过全局校验。
+
+**接 TAPD / 企微这类系统时不要对着文档猜字段。** 先配一个宽松的 source（`map` 留空也行），把它的
+webhook 指到 `/hooks/tapd`，触发一次真实事件，再 `GET /api/tasks/{id}` 看存下来的 `payload` 长什么样，
+然后补 `map` 和项目的 `fields`。TAPD 如果用表单
+（`application/x-www-form-urlencoded`）推送，服务端照样能解析；它的鉴权头也以真实请求为准再配 `auth`。
 
 ## HTTP API
 
@@ -277,7 +308,7 @@ pip install 'hookboard[feishu]'
 ## 自己跑一遍
 
 ```bash
-python3 -m unittest discover -s tests -v      # 59 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验
+python3 -m unittest discover -s tests -v      # 69 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验 + 阶段命令
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 条判据 + 5 分钟 demo + OUTBOX 渠道；需要 curl + jq
 ```
 

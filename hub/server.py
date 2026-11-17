@@ -92,11 +92,11 @@ class HubServer:
             "generated_at": time.time(),
         }
 
-    def resolve_project(self, body: dict) -> str:
+    def resolve_project(self, body: dict, default: str = "") -> str:
         """Project name for an incoming body; unknown names are a hard error."""
         if not self.config.projects:
             return ""  # no projects configured -> project is meaningless, not an error
-        name = routing.resolve(self.config, body)
+        name = routing.resolve(self.config, body) or default
         if name and name not in self.config.projects:
             known = ", ".join(sorted(self.config.projects)) or "(none configured)"
             raise ValueError(f"unknown project {name!r}; configured: {known}")
@@ -327,7 +327,8 @@ class Handler(BaseHTTPRequestHandler):
         # A source with its own auth (GitHub HMAC, GitLab token) replaces the
         # shared X-Hub-Token, since external systems cannot send our header.
         if getattr(source, "protected", False):
-            if not source.verify(raw, dict(self.headers)):
+            _, query = self._path()
+            if not source.verify(raw, dict(self.headers), query):
                 return self._json({"ok": False, "error": "unauthorized"}, 401)
         elif not self._require_token():
             return
@@ -338,7 +339,15 @@ class Handler(BaseHTTPRequestHandler):
         if not parsed:
             return self._json({"ok": True, "task_id": None, "created": False, "ignored": True})
         try:
-            project = hub.resolve_project(body if isinstance(body, dict) else {})
+            # A source may declare the project it feeds ("project": "tapd"),
+            # so a webhook whose body carries no project field still lands in
+            # the right place.
+            source_project = str(
+                ((hub.config.sources or {}).get(name) or {}).get("project") or ""
+            )
+            project = hub.resolve_project(
+                body if isinstance(body, dict) else {}, default=source_project
+            )
         except (ValueError, ImportError) as exc:
             return self._json({"ok": False, "error": str(exc)}, 400)
         task, created = hub.store.create_task(

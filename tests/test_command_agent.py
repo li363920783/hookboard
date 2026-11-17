@@ -80,6 +80,13 @@ class CommandAgentTest(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertIn("timeout", result["note"] or result["error"])
 
+    def test_task_identity_reaches_the_command(self):
+        agent = CommandAgent({"command": 'echo "$HUB_SOURCE:$HUB_EXTERNAL_ID:$HUB_PAYLOAD"'})
+        result = agent.start(
+            {"source": "tapd", "external_id": "42", "payload": {"bug": {"id": 42}}}, "p"
+        )
+        self.assertEqual(result["output"].strip(), 'tapd:42:{"bug": {"id": 42}}')
+
     def test_workspace_becomes_cwd(self):
         from tempfile import TemporaryDirectory
 

@@ -121,6 +121,18 @@ class OutboxPayloadTest(unittest.TestCase):
         self.assertIn("/a/token-abc", urls[0])
         self.assertEqual(urls[1], "http://127.0.0.1:8899/")
 
+    def test_feishu_card_renders_the_body(self):
+        with mock.patch.dict(os.environ, {"HUB_OUTBOX": "1"}):
+            notifier = FeishuNotifier({"enabled": True}, str(self.outbox))
+            notifier.context = self._feishu_context()
+            notifier.ask("需要确认", "**缺陷标题**：收单失败\n**严重程度**：严重", URL, [])
+
+        payload = json.loads(self._files()[0].read_text(encoding="utf-8"))
+        card = json.loads(payload["content"])
+        markdown = card["body"]["elements"][0]["content"]
+        self.assertIn("收单失败", markdown)
+        self.assertIn("严重程度", markdown)
+
     def test_feishu_missing_credentials_does_not_crash(self):
         # No HUB_OUTBOX, no dry_run, empty credentials: must warn + write outbox,
         # return ok, and never raise.

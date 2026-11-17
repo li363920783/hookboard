@@ -32,10 +32,12 @@ URL, because external systems send their own signature, not ours::
       }
     }
 
-``auth.type`` is ``token`` (shared secret in a header) or ``hmac_sha256`` (hex
-digest of the raw body, optional ``sha256=`` prefix).  The secret comes from
-``secret_env`` or inline ``secret``.  With no secret available the source fails
-closed — it rejects every request rather than falling back to open.
+``auth.type`` is ``token`` (shared secret in a header), ``hmac_sha256`` (hex
+digest of the raw body, optional ``sha256=`` prefix), or ``query`` (secret in
+the URL, ``/hooks/tapd?token=...``, for providers that send neither).  The
+secret comes from ``secret_env`` or inline ``secret``.  With no secret available
+the source fails closed — it rejects every request rather than falling back to
+open.
 """
 
 from __future__ import annotations
@@ -44,6 +46,20 @@ import hashlib
 import hmac
 import json
 import os
+
+
+def dig(body, path: str):
+    """Follow a dotted path through nested dicts/lists.  ``None`` if absent."""
+    current = body
+    for part in str(path).split("."):
+        if isinstance(current, dict):
+            current = current.get(part)
+        elif isinstance(current, list) and part.isdigit():
+            index = int(part)
+            current = current[index] if index < len(current) else None
+        else:
+            return None
+    return current
 
 
 def _header(headers: dict, name: str) -> str:
@@ -85,16 +101,24 @@ class GenericSource:
             return os.environ.get(str(env)) or ""
         return str(self.auth.get("secret") or "")
 
-    def verify(self, raw: bytes, headers: dict) -> bool:
+    def verify(self, raw: bytes, headers: dict, query: dict | None = None) -> bool:
         if not self.auth:
             return True
         secret = self._secret()
         if not secret:  # configured but no secret available: fail closed
             return False
+        kind = str(self.auth.get("type") or "token").lower()
+        if kind == "query":
+            # Providers that send neither a signature nor a header can still
+            # carry a secret in the URL: /hooks/tapd?token=...
+            param = self.auth.get("param") or "token"
+            values = (query or {}).get(param)
+            if isinstance(values, (list, tuple)):
+                values = values[-1] if values else None
+            return bool(values) and hmac.compare_digest(str(values), secret)
         supplied = _header(headers, self.auth.get("header") or "").strip()
         if not supplied:
             return False
-        kind = str(self.auth.get("type") or "token").lower()
         if kind == "token":
             return hmac.compare_digest(supplied, secret)
         if kind in ("hmac_sha256", "sha256"):
@@ -105,15 +129,6 @@ class GenericSource:
         return False
 
     # ----------------------------------------------------------- parse
-
-    @staticmethod
-    def _dig(body: dict, path: str):
-        current = body
-        for part in path.split("."):
-            if not isinstance(current, dict) or part not in current:
-                return None
-            current = current[part]
-        return current
 
     def parse(self, body: dict, headers: dict) -> dict | None:
         if not isinstance(body, dict):
@@ -126,7 +141,7 @@ class GenericSource:
                 if value:
                     return value
             path = self.map.get(field)
-            return self._dig(body, path) if path else None
+            return dig(body, path) if path else None
 
         external_id = pick("external_id")
         if external_id is None:

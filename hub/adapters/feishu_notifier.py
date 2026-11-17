@@ -99,7 +99,7 @@ class FeishuNotifier:
 
     # ------------------------------------------------------------------ card
 
-    def _card(self, title: str, url: str) -> dict:
+    def _card(self, title: str, url: str, body_md: str = "") -> dict:
         ctx = self.context
         public_base = (ctx.get("public_base") or url.split("/a/")[0]).rstrip("/")
         token = ctx.get("token") or url.rsplit("/", 1)[-1]
@@ -112,9 +112,15 @@ class FeishuNotifier:
         approval_url = f"{public_base}/a/{token}"
         board_url = f"{public_base}/"
         board_api = f"{public_base}/api/board"
+        # The engine's digest already carries source / ticket / fields; only
+        # fall back to the bare context lines when nobody passed a body.
+        if body_md:
+            header = body_md.strip()[:4000]
+        else:
+            header = f"来源: {source} · 条目: {external_id}"
         markdown = (
             f"**{task_title}**\n"
-            f"来源: {source} · 条目: {external_id}\n"
+            f"{header}\n"
             f"阶段: {stage}\n"
             f"等你决定: {question}\n"
             f"看板数据: {board_api}"
@@ -158,8 +164,8 @@ class FeishuNotifier:
             "body": {"elements": elements},
         }
 
-    def _request_body(self, title: str, url: str) -> dict:
-        card = self._card(title, url)
+    def _request_body(self, title: str, url: str, body_md: str = "") -> dict:
+        card = self._card(title, url, body_md)
         _, receive_id = self.resolve_target()
         return {
             "receive_id": receive_id,
@@ -171,16 +177,16 @@ class FeishuNotifier:
 
     def notify(self, title: str, body_md: str, links: list[tuple[str, str]]) -> dict:
         url = links[0][1] if links else ""
-        return self._deliver(title, url)
+        return self._deliver(title, url, body_md)
 
     def ask(self, title: str, body_md: str, url: str, options: list[str]) -> dict:
-        return self._deliver(title, url)
+        return self._deliver(title, url, body_md)
 
-    def _deliver(self, title: str, url: str) -> dict:
+    def _deliver(self, title: str, url: str, body_md: str = "") -> dict:
         if not self.enabled:
             return {"ok": True, "detail": "feishu disabled"}
         receive_id_type, receive_id = self.resolve_target()
-        payload = self._request_body(title, url)
+        payload = self._request_body(title, url, body_md)
         if self.dry_run or not receive_id:
             self._warn_missing(receive_id)
             # Outbox artifact = the exact send body plus task/stage metadata so

@@ -42,6 +42,12 @@ class SourceUnitTest(unittest.TestCase):
         self.assertTrue(src.verify(raw, {"X-Hub-Signature-256": sign(raw)[7:]}))
         self.assertFalse(src.verify(b'{"a":2}', {"X-Hub-Signature-256": sign(raw)}))
 
+    def test_query_auth(self):
+        src = GenericSource("tapd", {"auth": {"type": "query", "param": "token", "secret": SECRET}})
+        self.assertTrue(src.verify(b"", {}, {"token": [SECRET]}))
+        self.assertFalse(src.verify(b"", {}, {"token": ["nope"]}))
+        self.assertFalse(src.verify(b"", {}, {}))
+
     def test_missing_secret_fails_closed(self):
         src = GenericSource("gh", {"auth": {"type": "hmac_sha256", "header": "X-Hub-Signature-256", "secret_env": "HUB_NO_SUCH_SECRET"}})
         os.environ.pop("HUB_NO_SUCH_SECRET", None)
@@ -73,6 +79,7 @@ class HookEndpointTest(unittest.TestCase):
         cfg.bind, cfg.port, cfg.api_token = "127.0.0.1", 0, "api-token"
         cfg.agents = {}
         cfg.notifiers = {}
+        cfg.projects = {"p1": {}}
         cfg.sources = {
             "github": {
                 "type": "generic",
@@ -84,7 +91,16 @@ class HookEndpointTest(unittest.TestCase):
                     "secret_env": "HUB_TEST_SECRET",
                 },
             },
-            "open": {"type": "generic", "map": {"external_id": "id", "title": "title"}},
+            "open": {
+                "type": "generic",
+                "map": {"external_id": "id", "title": "title"},
+                "project": "p1",
+            },
+            "tapd": {
+                "type": "generic",
+                "map": {"kind": "event", "external_id": "id", "title": "title"},
+                "auth": {"type": "query", "param": "token", "secret_env": "HUB_TEST_SECRET"},
+            },
         }
         self.store = Store(Path(self.tmp.name) / "hub.db")
         self.engine = Engine(self.store, cfg, notifiers={})
@@ -161,6 +177,15 @@ class HookEndpointTest(unittest.TestCase):
         code, out = self.post(
             "/hooks/open", {"id": "x", "title": "t"}, {"X-Hub-Token": "api-token"}
         )
+        self.assertEqual(code, 200, out)
+        self.assertTrue(out["created"])
+        # The source declares its project; the body has no project field.
+        self.assertEqual(out["task"]["project"], "p1")
+
+    def test_query_token_source(self):
+        code, out = self.post("/hooks/tapd?token=wrong", {"id": "1", "title": "t"})
+        self.assertEqual(code, 401, out)
+        code, out = self.post(f"/hooks/tapd?token={SECRET}", {"id": "1", "title": "t"})
         self.assertEqual(code, 200, out)
         self.assertTrue(out["created"])
 

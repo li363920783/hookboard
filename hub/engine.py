@@ -13,12 +13,14 @@ Rules enforced here (and only here):
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import traceback
 from pathlib import Path
 
 from .adapters import load_agent, load_notifier
+from .adapters.generic_source import dig
 
 
 class Engine:
@@ -126,7 +128,17 @@ class Engine:
             self._gate(task)
             return
 
-        handler = self.handlers.get(stage) or self._default_handler(stage)
+        handler = self.handlers.get(stage)
+        if handler is None:
+            # A project may hang its own command off a stage (release, update
+            # the ticket system, ...).  Gate stages never reach here: the
+            # approval branch above returns first.
+            step = (self.project_spec(task).get("steps") or {}).get(stage)
+            handler = (
+                (lambda t, spec=step: self._run_step(t, spec))
+                if step is not None
+                else self._default_handler(stage)
+            )
         started = time.time()
         try:
             result = handler(task) or {}
@@ -154,11 +166,43 @@ class Engine:
         following = self.next_stage(stage)
         return lambda task: {"status": "pending", "stage": following}
 
-    def _run_agent(self, task: dict) -> dict:
-        prompt = "\n\n".join(
-            part for part in (task.get("title"), task.get("note")) if part
+    def _prompt(self, task: dict) -> str:
+        """What an agent (or a stage command) is told about the task."""
+        return "\n\n".join(
+            part
+            for part in (task.get("title"), task.get("note"), self._task_digest(task))
+            if part
         ).strip()
-        agent = self.agent_for(task)
+
+    def _task_digest(self, task: dict) -> str:
+        """Readable summary of the hook payload, shared by cards and prompts.
+
+        Projects may pick fields out of the payload with ``fields`` (same dotted
+        paths as the source map); without it the raw payload is dumped, first
+        1500 characters.
+        """
+        lines = [
+            f"来源：{task.get('source') or '?'} · 类型：{task.get('kind') or 'hook'} "
+            f"· 条目：{task.get('external_id') or '?'}"
+        ]
+        if task.get("project"):
+            lines.append(f"项目：{task['project']}")
+        payload = task.get("payload")
+        if isinstance(payload, dict) and payload:
+            fields = self.project_spec(task).get("fields") or {}
+            if fields:
+                for label, path in fields.items():
+                    value = dig(payload, path)
+                    if value not in (None, ""):
+                        lines.append(f"**{label}**：{str(value)[:1000]}")
+            else:
+                blob = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+                lines.append(f"原始内容：{blob[:1500]}")
+        return "\n".join(lines)
+
+    def _run_agent(self, task: dict, agent=None) -> dict:
+        prompt = self._prompt(task)
+        agent = agent or self.agent_for(task)
         payload = dict(task)
         workspace = self.project_spec(task).get("workspace")
         if workspace:
@@ -169,6 +213,8 @@ class Engine:
         # `pending` advances the pipeline.
         status = result.get("status") or ("pending" if ok else "failed")
         following = self.next_stage(task["stage"])
+        if status == "pending" and following is None:
+            status = "done"
         return {
             "ok": ok,
             "agent": agent.name,
@@ -180,6 +226,20 @@ class Engine:
             if status == "pending"
             else (result.get("note") or result.get("error") or "agent failed"),
         }
+
+    def _run_step(self, task: dict, spec) -> dict:
+        """Run a project's per-stage command (``steps``) through CommandAgent.
+
+        Same env contract as an agent (``HUB_*``), so a step can read
+        ``HUB_EXTERNAL_ID`` / ``HUB_PAYLOAD`` and call the ticketing system.
+        """
+        from .adapters.shell_agent import CommandAgent
+
+        options = {"command": spec} if isinstance(spec, str) else dict(spec)
+        options.setdefault("timeout", 600)
+        result = self._run_agent(task, agent=CommandAgent(options))
+        result["agent"] = f"step:{task['stage']}"
+        return result
 
     def _apply(self, task: dict, result: dict) -> None:
         status = result.get("status") or "pending"
@@ -227,7 +287,9 @@ class Engine:
                 task_id=task["id"],
                 stage=stage,
                 question=f"阶段「{stage}」需要确认：{task['title']}",
-                detail=task.get("note") or "",
+                detail="\n\n".join(
+                    part for part in (task.get("note"), self._task_digest(task)) if part
+                ),
                 options=["通过", "打回"],
                 recommend=0,
             )

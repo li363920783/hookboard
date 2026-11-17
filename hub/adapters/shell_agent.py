@@ -1,7 +1,11 @@
 """Command agent: run one command and interpret its output from config.
 
 Task data reaches the command through environment variables (never string
-interpolation), so a hostile task title cannot inject shell syntax.
+interpolation), so a hostile task title cannot inject shell syntax:
+``HUB_TASK_ID``, ``HUB_TASK_TITLE``, ``HUB_TASK_STAGE``, ``HUB_TASK_NOTE``,
+``HUB_PROJECT``, ``HUB_WORKSPACE``, ``HUB_PROMPT``, ``HUB_SOURCE``,
+``HUB_KIND``, ``HUB_EXTERNAL_ID``, ``HUB_SESSION`` and ``HUB_PAYLOAD``
+(the hook body as JSON, capped at 60000 characters).
 
 This is the generic adapter behind both ``type: "shell"`` and
 ``type: "command"`` — there is no per-product code here.  Anything that can be
@@ -73,8 +77,17 @@ class CommandAgent:
                 "HUB_PROJECT": task.get("project") or "",
                 "HUB_WORKSPACE": workspace or "",
                 "HUB_PROMPT": prompt,
+                "HUB_SOURCE": task.get("source") or "",
+                "HUB_KIND": task.get("kind") or "",
+                "HUB_EXTERNAL_ID": task.get("external_id") or "",
+                "HUB_SESSION": task.get("session") or "",
             }
         )
+        if task.get("payload") is not None:
+            try:
+                env["HUB_PAYLOAD"] = json.dumps(task["payload"], ensure_ascii=False)[:60000]
+            except (TypeError, ValueError):
+                pass
         try:
             proc = subprocess.run(
                 self.command,
