@@ -198,6 +198,10 @@ TAPD and home-grown systems are all the same shape:
 - `accept` only lets the listed `kind` values through; everything else is acknowledged and ignored.
   Required for TAPD — otherwise every status change, including the agent's own write-back, reopens
   the task.
+- `filter` gives you conditional rules: `"filter": "/path/rules.py:accept"` receives
+  `(body, headers)` and returns `False` to drop, `True` to accept, or a dict that overrides
+  `kind` / `title` / `external_id` (that is how a comment event gets the comment text as its
+  title). The rules file lives in your deployment, not in this repo.
 - `auth.type` is `hmac_sha256` (hex digest of the raw body, `sha256=` prefix optional), `token`
   (the header value compared directly), or `query` (for systems that send no headers at all — the
   secret rides in the URL, `/hooks/tapd?token=...`). The secret comes from `secret_env` or inline
@@ -344,7 +348,7 @@ warning and the service runs normally.
 ## Validate it yourself
 
 ```bash
-python3 -m unittest discover -s tests -v      # 72 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
+python3 -m unittest discover -s tests -v      # 73 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 criteria + 5-minute demo + OUTBOX channels; curl + jq
 ```
 

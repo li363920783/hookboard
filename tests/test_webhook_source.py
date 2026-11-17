@@ -55,6 +55,27 @@ class SourceUnitTest(unittest.TestCase):
         self.assertIsNone(src.parse({"event": "bug::update", "id": "1"}, {}))
         self.assertIsNotNone(src.parse({"event": "bug::create", "id": "1"}, {}))
 
+    def test_filter_from_a_file_path(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        with TemporaryDirectory() as tmp:
+            rules = Path(tmp, "rules.py")
+            rules.write_text(
+                "def accept(body, headers=None):\n"
+                "    if not body.get('ok'):\n"
+                "        return False\n"
+                "    return {'title': 'overridden', 'kind': 'normalized'}\n",
+                encoding="utf-8",
+            )
+            src = GenericSource(
+                "tapd", {"filter": f"{rules}:accept", "map": {"external_id": "id"}}
+            )
+            self.assertIsNone(src.parse({"ok": False, "id": "1"}, {}))
+            parsed = src.parse({"ok": True, "id": "1"}, {})
+            self.assertEqual(parsed["title"], "overridden")
+            self.assertEqual(parsed["kind"], "normalized")
+
     def test_query_auth(self):
         src = GenericSource("tapd", {"auth": {"type": "query", "param": "token", "secret": SECRET}})
         self.assertTrue(src.verify(b"", {}, {"token": [SECRET]}))

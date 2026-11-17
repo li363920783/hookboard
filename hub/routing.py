@@ -18,16 +18,29 @@ An empty result means "no project"; the engine then uses the global defaults.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 
 
 def load_callable(target: str):
-    """Import ``pkg.mod:func`` or ``pkg.mod.func`` and return the callable."""
+    """Import ``pkg.mod:func``, ``pkg.mod.func`` or ``/path/rules.py:func``."""
     module_name, _, attr = target.partition(":")
     if not attr:
         module_name, _, attr = target.rpartition(".")
     if not module_name or not attr:
-        raise ValueError(f"routing.python must look like 'module:function', got {target!r}")
-    module = importlib.import_module(module_name)
+        raise ValueError(
+            f"expected 'module:function' or '/path/file.py:function', got {target!r}"
+        )
+    if module_name.endswith(".py"):
+        # A deployment's own rules file, kept outside the package on purpose.
+        spec = importlib.util.spec_from_file_location(
+            "hub_rules_" + str(abs(hash(module_name))), module_name
+        )
+        if spec is None or spec.loader is None:
+            raise ValueError(f"cannot load rules file {module_name!r}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    else:
+        module = importlib.import_module(module_name)
     try:
         return getattr(module, attr)
     except AttributeError as exc:

@@ -107,6 +107,14 @@ class GenericSource:
         # and ignored. Without it, every TAPD status change (including our own
         # write-back) would re-open the same task.
         self.accept = {str(e) for e in (options.get("accept") or [])}
+        # Optional deployment rule: filter(body, headers) -> truthy to accept.
+        # Returning a dict also overrides kind/external_id/title, which is how
+        # a comment event gets a readable title instead of "在状态 [新] 添加".
+        self._filter = None
+        if options.get("filter"):
+            from ..routing import load_callable
+
+            self._filter = load_callable(str(options["filter"]))
 
     # ------------------------------------------------------------ auth
 
@@ -152,6 +160,13 @@ class GenericSource:
     def parse(self, body: dict, headers: dict) -> dict | None:
         if not isinstance(body, dict):
             return None
+        override = {}
+        if self._filter is not None:
+            verdict = self._filter(body, headers)
+            if not verdict:
+                return None
+            if isinstance(verdict, dict):
+                override = verdict
 
         def pick(field: str):
             header_name = self.header_map.get(field)
@@ -174,7 +189,7 @@ class GenericSource:
             priority = int(pick("priority") or 0)
         except (TypeError, ValueError):
             priority = 0
-        return {
+        parsed = {
             "source": str(pick("source") or self.name),
             "kind": str(kind),
             "external_id": str(external_id),
@@ -182,6 +197,10 @@ class GenericSource:
             "priority": priority,
             "payload": body,
         }
+        for key in ("source", "kind", "external_id", "title", "priority"):
+            if override.get(key) not in (None, ""):
+                parsed[key] = override[key]
+        return parsed
 
 
 def register(name: str = "generic", options: dict | None = None) -> GenericSource:
