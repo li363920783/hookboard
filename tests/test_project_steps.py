@@ -27,7 +27,9 @@ class RecordingAgent:
         return {"ok": True, "status": "done", "text": "", "error": None}
 
     def send(self, task, message):
-        raise NotImplementedError
+        self.messages = getattr(self, "messages", [])
+        self.messages.append(message)
+        return {"ok": True, "detail": "sent"}
 
 
 class DigestTestCase(unittest.TestCase):
@@ -149,6 +151,21 @@ class DigestTestCase(unittest.TestCase):
         self.engine.process(task)
         approval = self.store.get_approval(task["id"], "plan")
         self.assertIn("派单目标：/tmp/routed @ main", approval["detail"])
+
+    def test_message_reaches_the_agent_and_is_logged(self):
+        task = self.new_task(stage="work")
+        self.store.update_task(task["id"], where_status="running", session="t-9", status="waiting")
+        task = self.store.get_task(task["id"])
+        result = self.engine.send_message(task, "先别动发版，看下日志")
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.agent.messages[-1], "先别动发版，看下日志")
+        kinds = [event["kind"] for event in self.store.events_for(task["id"])]
+        self.assertIn("message", kinds)
+
+    def test_message_without_a_session_is_rejected(self):
+        task = self.new_task(stage="work")
+        with self.assertRaises(ValueError):
+            self.engine.send_message(task, "你好")
 
     def test_finish_step_runs_and_completes(self):
         task = self.new_task(stage="finish")

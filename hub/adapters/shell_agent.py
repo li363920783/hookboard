@@ -57,6 +57,11 @@ class CommandAgent:
         options = options or {}
         self.command = options.get("command") or "echo done"
         self.timeout = float(options.get("timeout", 60))
+        # Optional continuation: send a message into an existing session
+        # (e.g. `t3 thread send "$HUB_SESSION" -`).  The message arrives on
+        # stdin, so long instructions need no shell quoting.
+        self.send_command = options.get("send") or ""
+        self.send_timeout = float(options.get("send_timeout", 30))
         self.cwd = options.get("cwd")
         self.parse = dict(options.get("parse") or {})
         self.exit_codes = {
@@ -65,10 +70,13 @@ class CommandAgent:
 
     # ------------------------------------------------------------------ run
 
-    def start(self, task: dict, prompt: str) -> dict:
+    def _workspace(self, task: dict):
         # A project's `workspace` overrides the agent's own cwd, so different
         # projects can run the same agent in different checkouts.
-        workspace = task.get("workspace") or self.cwd
+        return task.get("workspace") or self.cwd
+
+    def _env(self, task: dict, prompt: str = "", message: str = "") -> dict:
+        workspace = self._workspace(task)
         env = dict(os.environ)
         env.update(
             {
@@ -80,6 +88,7 @@ class CommandAgent:
                 "HUB_WORKSPACE": workspace or "",
                 "HUB_BRANCH": task.get("branch") or "",
                 "HUB_PROMPT": prompt,
+                "HUB_MESSAGE": message,
                 "HUB_SOURCE": task.get("source") or "",
                 "HUB_KIND": task.get("kind") or "",
                 "HUB_EXTERNAL_ID": task.get("external_id") or "",
@@ -91,6 +100,11 @@ class CommandAgent:
                 env["HUB_PAYLOAD"] = json.dumps(task["payload"], ensure_ascii=False)[:60000]
             except (TypeError, ValueError):
                 pass
+        return env
+
+    def start(self, task: dict, prompt: str) -> dict:
+        workspace = self._workspace(task)
+        env = self._env(task, prompt)
         try:
             proc = subprocess.run(
                 self.command,
@@ -191,7 +205,34 @@ class CommandAgent:
         return {"ok": True, "status": "done", "text": "", "error": None}
 
     def send(self, task: dict, message: str) -> dict:
-        raise NotImplementedError("command agent has no session to continue")
+        """Continue an existing session through ``send_command`` (optional).
+
+        The message goes to the command's stdin, so it never has to survive
+        shell quoting: ``t3 thread send "$HUB_SESSION" -`` reads it as-is.
+        """
+        if not self.send_command:
+            raise NotImplementedError("this agent has no `send` command configured")
+        try:
+            proc = subprocess.run(
+                self.send_command,
+                shell=True,
+                input=message,
+                capture_output=True,
+                text=True,
+                timeout=self.send_timeout,
+                cwd=self._workspace(task),
+                env=self._env(task, message=message),
+            )
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "detail": f"timeout after {self.send_timeout}s"}
+        except Exception as exc:  # bad cwd, missing binary, ...
+            return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+        output = (proc.stdout or "").strip() or (proc.stderr or "").strip()
+        return {
+            "ok": proc.returncode == 0,
+            "detail": output[-2000:] or f"exit {proc.returncode}",
+            "returncode": proc.returncode,
+        }
 
 
 # Backwards-compatible name for existing configs and imports.

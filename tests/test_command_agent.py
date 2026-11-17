@@ -87,6 +87,16 @@ class CommandAgentTest(unittest.TestCase):
         )
         self.assertEqual(result["output"].strip(), 'tapd:42:{"bug": {"id": 42}}')
 
+    def test_send_relays_the_message_on_stdin(self):
+        agent = CommandAgent({"command": "echo start", "send": "cat"})
+        result = agent.send({"session": "t-1"}, "多行指令\n第二行")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["detail"], "多行指令\n第二行")
+
+    def test_send_without_a_command_is_not_implemented(self):
+        with self.assertRaises(NotImplementedError):
+            CommandAgent({"command": "echo start"}).send({"session": "t-1"}, "hi")
+
     def test_workspace_becomes_cwd(self):
         from tempfile import TemporaryDirectory
 

@@ -52,6 +52,9 @@ class HubServer:
                 "stage",
                 "priority",
                 "note",
+                "session",
+                "workspace",
+                "branch",
                 "attempts",
                 "next_run_at",
                 "created_at",
@@ -89,6 +92,7 @@ class HubServer:
                 for key, title in columns
             ],
             "counts": counts,
+            "projects": sorted((self.config.projects or {}).keys()),
             "generated_at": time.time(),
         }
 
@@ -300,12 +304,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if path.startswith("/api/tasks/"):
             parts = path.strip("/").split("/")
-            if len(parts) != 4 or parts[3] not in ("wake", "cancel"):
+            if len(parts) != 4 or parts[3] not in ("wake", "cancel", "message"):
                 return self._json({"ok": False, "error": "not found"}, 404)
             try:
                 task_id = int(parts[2])
             except ValueError:
                 return self._json({"ok": False, "error": "bad task id"}, 400)
+            if parts[3] == "message":
+                return self._message(task_id)
             if parts[3] == "wake":
                 task = hub.store.wake_task(task_id)
             else:
@@ -400,6 +406,28 @@ class Handler(BaseHTTPRequestHandler):
                 {"ok": True, "changed": changed, "approval": approval, "task": task}
             )
         return self._html(_approval_result_page(approval, task, changed))
+
+    def _message(self, task_id: int):
+        """Send a human instruction into a task's running agent session."""
+        hub = self.hub
+        task = hub.store.get_task(task_id)
+        if task is None:
+            return self._json({"ok": False, "error": "task not found"}, 404)
+        body = self._body()
+        text = str((body or {}).get("text") or "").strip() if isinstance(body, dict) else ""
+        if not text:
+            return self._json({"ok": False, "error": "text is required"}, 400)
+        try:
+            result = hub.engine.send_message(task, text)
+        except (ValueError, NotImplementedError) as exc:
+            return self._json({"ok": False, "error": str(exc)}, 400)
+        return self._json(
+            {
+                "ok": bool(result.get("ok")),
+                "detail": result.get("detail") or "",
+                "task_id": task_id,
+            }
+        )
 
 
 # ------------------------------------------------------------------- pages

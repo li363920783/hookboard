@@ -233,6 +233,7 @@ that same request before setting `auth`.
 | `GET` | `/api/tasks/{id}` | Task detail: approvals, events, runs |
 | `POST` | `/api/tasks/{id}/wake` | Clear `next_run_at` so a pending task runs now |
 | `POST` | `/api/tasks/{id}/cancel` | Cancel a pending/running/waiting task |
+| `POST` | `/api/tasks/{id}/message` | Send an instruction into the running session `{"text":"…"}` (agent needs `send`) |
 | `GET` | `/a/{token}` | Human-friendly approval page (HTML, phone-ready) |
 | `POST` | `/a/{token}` | Submit `{"index":0}` / `{"index":1}` / `{"text":"…"}` |
 | `GET` | `/api/board` | Board data (the UI polls this every 3 s) |
@@ -270,6 +271,8 @@ The built-in M1 adapters are examples to copy:
 "agents": {
   "t3": {"type": "command",
          "command": "t3 thread start \"$HUB_WORKSPACE\" \"$HUB_PROMPT\" --json --wait",
+         "send": "t3 thread send \"$HUB_SESSION\" -",
+         "send_timeout": 60,
          "timeout": 1800,
          "parse": {"format": "json", "session": "threadId", "output": "reply"}},
   "cc": {"type": "command",
@@ -282,7 +285,8 @@ The built-in M1 adapters are examples to copy:
 `parse` paths are dotted (`data.thread.id` works). `session` is stored on the task, `link` is a URL
 for humans, and `output` replaces raw stdout in the run record. `exit_codes` maps a non-zero exit to
 a status (`{"2": "pending"}` retries; anything unmapped fails). The default timeout is 60 s — raise
-it for real agents.
+it for real agents. An optional `send` command continues an existing session (the board's message box
+uses it for running tasks); the text arrives on stdin, so no shell quoting is involved.
 - `notifiers`: `feishu` (self-built app, interactive card with url buttons — the default
   approval channel), `webhook` (POST/GET JSON to a URL), and `email` (stdlib `smtplib`,
   multipart/alternative HTML + plain text, SMTP_SSL or STARTTLS)
@@ -355,7 +359,7 @@ warning and the service runs normally.
 ## Validate it yourself
 
 ```bash
-python3 -m unittest discover -s tests -v      # 78 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
+python3 -m unittest discover -s tests -v      # 82 tests: state machine + notifiers + inbound gateway + routing + webhook auth + stage steps
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 criteria + 5-minute demo + OUTBOX channels; curl + jq
 ```
 

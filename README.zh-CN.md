@@ -215,6 +215,7 @@ webhook 指到 `/hooks/tapd`，触发一次真实事件，再 `GET /api/tasks/{i
 | `GET` | `/api/tasks/{id}` | 单任务详情：审批、events、runs |
 | `POST` | `/api/tasks/{id}/wake` | 清空 `next_run_at`，让 pending 任务立刻跑 |
 | `POST` | `/api/tasks/{id}/cancel` | 取消 pending/running/waiting 任务 |
+| `POST` | `/api/tasks/{id}/message` | 给运行中的会话发指令 `{"text":"…"}`（agent 需配 `send`） |
 | `GET` | `/a/{token}` | 手机友好的审批页面（HTML） |
 | `POST` | `/a/{token}` | 提交 `{"index":0}` / `{"index":1}` / `{"text":"…"}` |
 | `GET` | `/api/board` | 看板数据（前端每 3 秒轮询） |
@@ -250,6 +251,8 @@ M1 内置的三个实现就是给接入者抄的样例：
 "agents": {
   "t3": {"type": "command",
          "command": "t3 thread start \"$HUB_WORKSPACE\" \"$HUB_PROMPT\" --json --wait",
+         "send": "t3 thread send \"$HUB_SESSION\" -",
+         "send_timeout": 60,
          "timeout": 1800,
          "parse": {"format": "json", "session": "threadId", "output": "reply"}},
   "cc": {"type": "command",
@@ -262,6 +265,8 @@ M1 内置的三个实现就是给接入者抄的样例：
 `parse` 的路径支持点号（`data.thread.id`）。`session` 存到任务上，`link` 给人看的链接，`output`
 替代原始 stdout 写进运行记录。`exit_codes` 把非零退出码映射成状态（`{"2": "pending"}` 重试，
 未映射的算失败）。默认超时 60 秒——真跑 agent 要调大。
+`send` 是可选的“继续会话”命令：看板详情里对 running 任务发的指令由它送达，正文走 stdin，
+长文本不需要转义；不配就表示这个 agent 不支持追加指令。
 - `notifiers`：`feishu`（自建应用，interactive 卡片 + url 按钮，**默认审批渠道**）、
   `webhook`（POST/GET JSON 到你给的 URL）、`email`（标准库 `smtplib`，multipart/alternative
   的 HTML + 纯文本，支持 SMTP_SSL / STARTTLS）
@@ -321,7 +326,7 @@ pip install 'hookboard[feishu]'
 ## 自己跑一遍
 
 ```bash
-python3 -m unittest discover -s tests -v      # 78 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验 + 阶段命令
+python3 -m unittest discover -s tests -v      # 82 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验 + 阶段命令
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 条判据 + 5 分钟 demo + OUTBOX 渠道；需要 curl + jq
 ```
 

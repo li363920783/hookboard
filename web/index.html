@@ -7,143 +7,343 @@
 <style>
   :root {
     color-scheme: dark;
-    --bg: #0b0f14;
-    --panel: #101821;
-    --card: #131d28;
-    --line: #1f2c3a;
-    --text: #e6edf3;
-    --muted: #8aa0b3;
-    --dim: #61758a;
+    --bg: #080b10;
+    --bg-2: #0b1017;
+    --panel: #0f1620;
+    --card: #121b26;
+    --card-2: #15202c;
+    --line: #1d2a38;
+    --line-2: #2a3b4d;
+    --text: #e8eef5;
+    --muted: #93a6b8;
+    --dim: #5f7286;
     --pending: #94a3b8;
-    --running: #60a5fa;
-    --waiting: #fbbf24;
-    --done: #34d399;
+    --running: #5aa9ff;
+    --waiting: #f5b93f;
+    --done: #37d39b;
+    --failed: #f87171;
+    --radius: 14px;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; }
+  html, body { margin: 0; height: 100%; }
   body {
-    background: var(--bg);
+    background:
+      radial-gradient(1100px 500px at 15% -10%, rgba(90, 169, 255, .10), transparent 60%),
+      radial-gradient(900px 420px at 90% -20%, rgba(245, 185, 63, .06), transparent 55%),
+      var(--bg);
     color: var(--text);
-    min-height: 100vh;
-    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    font: 14.5px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
           "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  header.bar {
-    position: sticky; top: 0; z-index: 10;
-    display: flex; align-items: center; justify-content: space-between; gap: 16px;
-    padding: 14px 22px;
-    background: rgba(11, 15, 20, .86);
-    border-bottom: 1px solid var(--line);
-    backdrop-filter: blur(8px);
-  }
-  .brand { display: flex; align-items: baseline; gap: 10px; }
-  .brand h1 { margin: 0; font-size: 17px; letter-spacing: .02em; font-weight: 650; }
-  .brand .mark { color: var(--waiting); font-size: 14px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); align-self: center; }
-  .dot.on { background: var(--done); box-shadow: 0 0 8px rgba(52, 211, 153, .55); }
-  .dot.off { background: #ef4444; }
-  #counts { display: flex; gap: 8px; flex-wrap: wrap; }
-  .chip {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: 12px; color: var(--muted);
-    border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px;
-    background: var(--panel);
-  }
-  .chip b { font-weight: 650; color: var(--text); }
-  .chip-pending b { color: var(--pending); }
-  .chip-running b { color: var(--running); }
-  .chip-waiting b { color: var(--waiting); }
-  .chip-done b { color: var(--done); }
+  [hidden] { display: none !important; }
+  a { color: #7dd3fc; }
 
+  /* ------------------------------------------------------------- top bar */
+  header.topbar {
+    position: sticky; top: 0; z-index: 30;
+    display: flex; align-items: center; gap: 18px;
+    padding: 12px 22px;
+    background: rgba(8, 11, 16, .78);
+    border-bottom: 1px solid var(--line);
+    backdrop-filter: blur(12px);
+  }
+  .brand { display: flex; align-items: center; gap: 9px; }
+  .brand .mark { color: var(--waiting); font-size: 15px; }
+  .brand h1 { margin: 0; font-size: 16px; font-weight: 680; letter-spacing: .02em; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); transition: background .2s; }
+  .dot.on { background: var(--done); box-shadow: 0 0 10px rgba(55, 211, 155, .6); }
+  .dot.off { background: var(--failed); box-shadow: 0 0 10px rgba(248, 113, 113, .6); }
+
+  #counts { display: flex; gap: 7px; flex-wrap: wrap; margin-left: 6px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12px; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px;
+    background: rgba(15, 22, 32, .8);
+  }
+  .chip b { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 650; }
+  .chip i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .9; }
+  .chip-pending i { color: var(--pending); } .chip-pending b { color: var(--pending); }
+  .chip-running i { color: var(--running); } .chip-running b { color: var(--running); }
+  .chip-waiting i { color: var(--waiting); } .chip-waiting b { color: var(--waiting); }
+  .chip-done i { color: var(--done); } .chip-done b { color: var(--done); }
+
+  .bar-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  button {
+    font: inherit; font-size: 13px; cursor: pointer;
+    color: var(--text); background: #16212d; border: 1px solid var(--line-2);
+    border-radius: 10px; padding: 7px 13px;
+    transition: background .15s, border-color .15s, transform .05s;
+  }
+  button:hover { background: #1b2937; border-color: #365068; }
+  button:active { transform: translateY(1px); }
+  button.primary { background: #1d4ed8; border-color: #2f5fea; }
+  button.primary:hover { background: #2657e6; }
+  button.ghost { background: transparent; }
+  button.danger { color: #fca5a5; border-color: #4b2026; background: #1d1116; }
+  button.small { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+  button:disabled { opacity: .55; cursor: progress; }
+
+  /* ---------------------------------------------------------------- board */
   main.board {
     display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 16px; padding: 20px 22px 40px; align-items: start;
+    gap: 14px; padding: 18px 22px 48px; align-items: start;
   }
   .col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .col > header {
+    position: sticky; top: 57px; z-index: 5;
     display: flex; align-items: center; gap: 8px;
-    padding: 2px 2px 8px;
+    padding: 8px 4px;
+    background: linear-gradient(var(--bg) 65%, transparent);
   }
-  .col h2 { margin: 0; font-size: 13px; font-weight: 650; letter-spacing: .04em; color: var(--muted); }
-  .col .n { margin-left: auto; font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .col h2 { margin: 0; font-size: 12.5px; font-weight: 680; letter-spacing: .06em; color: var(--muted); }
+  .col .n {
+    margin-left: auto; font-size: 11.5px; color: var(--dim);
+    font-variant-numeric: tabular-nums;
+    border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px;
+  }
   .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
   .col-pending .pulse { background: var(--pending); }
-  .col-running .pulse { background: var(--running); }
+  .col-running .pulse { background: var(--running); animation: pulse 1.6s ease-in-out infinite; }
   .col-waiting .pulse { background: var(--waiting); }
   .col-done .pulse { background: var(--done); }
+  @keyframes pulse { 50% { opacity: .35; transform: scale(.85); } }
 
   .card {
-    background: var(--card);
+    position: relative;
+    background: linear-gradient(180deg, var(--card-2), var(--card));
     border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 12px 13px;
+    border-radius: var(--radius);
+    padding: 12px 13px 12px 15px;
+    cursor: pointer;
     overflow-wrap: anywhere;
+    transition: border-color .15s, transform .12s, box-shadow .15s;
   }
-  .col-running .card { border-left: 2px solid var(--running); }
-  .col-waiting .card { border-left: 2px solid var(--waiting); }
-  .col-done .card { opacity: .72; }
+  .card::before {
+    content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 2px;
+    border-radius: 2px; background: var(--dim); opacity: .6;
+  }
+  .card:hover { border-color: #2f4558; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
+  .card:focus-visible { outline: 2px solid #2f5fea; outline-offset: 2px; }
+  .st-running::before { background: var(--running); opacity: 1; }
+  .st-waiting::before { background: var(--waiting); opacity: 1; }
+  .st-done::before { background: var(--done); }
+  .st-failed::before, .st-cancelled::before { background: var(--failed); }
+  .col-done .card { opacity: .74; }
+  .col-done .card:hover { opacity: 1; }
+
   .card .top { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
   .src {
-    color: #7dd3fc; background: #0b2a3a; border-radius: 6px; padding: 1px 7px;
-    letter-spacing: .02em;
+    color: #8fd3ff; background: rgba(18, 60, 86, .55); border: 1px solid rgba(56, 130, 178, .35);
+    border-radius: 6px; padding: 1px 7px; letter-spacing: .02em;
   }
-  .ext { color: var(--dim); margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
-  .card h3 { margin: 8px 0 6px; font-size: 14.5px; font-weight: 600; line-height: 1.4; }
-  .meta { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--dim); }
-  .stage { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
-  .card .note { margin: 6px 0 0; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; }
+  .ext {
+    color: var(--dim); margin-left: auto; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; max-width: 58%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 10.5px;
+  }
+  .card h3 { margin: 8px 0 7px; font-size: 14px; font-weight: 600; line-height: 1.45; }
+  .meta { display: flex; gap: 7px; align-items: center; font-size: 11.5px; color: var(--dim); }
+  .stage {
+    color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+    background: rgba(255, 255, 255, .03); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px;
+  }
+  .badge-live {
+    margin-left: auto; font-size: 10.5px; color: var(--running);
+    border: 1px solid rgba(90, 169, 255, .35); border-radius: 999px; padding: 0 7px;
+  }
+  .card .note {
+    margin: 7px 0 0; font-size: 12.5px; color: var(--muted);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
 
-  .approval { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
-  .approval .q { margin: 0 0 8px; font-size: 12.5px; color: #fcd34d; white-space: pre-wrap; }
+  .approval { margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--line); cursor: default; }
+  .approval .q { margin: 0 0 8px; font-size: 12.5px; color: #fcd34d; }
   .opts { display: flex; gap: 6px; flex-wrap: wrap; }
-  button {
-    font: inherit; font-size: 12.5px; cursor: pointer;
-    color: var(--text); background: #17232e; border: 1px solid #2b3d4f;
-    border-radius: 8px; padding: 6px 11px;
-  }
-  button:hover { background: #1d2c39; }
-  button.primary { background: #1d4ed8; border-color: #2563eb; }
-  button.primary:hover { background: #2458e6; }
   .approval textarea {
     width: 100%; margin-top: 8px; padding: 7px 9px; resize: vertical;
     font: inherit; font-size: 12.5px; color: var(--text);
-    background: #0d141b; border: 1px solid #2b3d4f; border-radius: 8px;
+    background: #0b1118; border: 1px solid var(--line-2); border-radius: 8px;
   }
   button.send { width: 100%; margin-top: 6px; }
-  button:disabled { opacity: .55; cursor: progress; }
   .approval .q.done { color: var(--dim); }
-  .empty { border: 1px dashed var(--line); border-radius: 12px; color: var(--dim); font-size: 12px; padding: 12px; text-align: center; }
+  .empty {
+    border: 1px dashed var(--line); border-radius: var(--radius);
+    color: var(--dim); font-size: 12px; padding: 16px; text-align: center;
+  }
+
+  /* --------------------------------------------------------------- drawer */
+  .scrim {
+    position: fixed; inset: 0; z-index: 40;
+    background: rgba(4, 6, 9, .55); backdrop-filter: blur(2px);
+  }
+  .drawer {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 50;
+    width: min(620px, 100vw);
+    background: var(--panel);
+    border-left: 1px solid var(--line);
+    box-shadow: -24px 0 60px rgba(0, 0, 0, .5);
+    display: flex; flex-direction: column;
+    animation: slide .18s ease;
+  }
+  @keyframes slide { from { transform: translateX(24px); opacity: .4; } }
+  .drawer header {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 16px 18px 12px; border-bottom: 1px solid var(--line);
+  }
+  .drawer header h2 { margin: 6px 0 0; font-size: 16px; line-height: 1.45; }
+  .drawer header .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+  .drawer .close { margin-left: auto; flex: none; }
+  .drawer .body { overflow: auto; padding: 16px 18px 28px; }
+  .drawer .foot {
+    padding: 12px 18px; border-top: 1px solid var(--line);
+    display: flex; gap: 8px; justify-content: flex-end; background: var(--bg-2);
+  }
+  .tag {
+    font-size: 11px; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--line-2);
+    color: var(--muted); background: rgba(255, 255, 255, .02);
+  }
+  .tag.waiting { color: var(--waiting); border-color: rgba(245, 185, 63, .4); }
+  .tag.running { color: var(--running); border-color: rgba(90, 169, 255, .4); }
+  .tag.done { color: var(--done); border-color: rgba(55, 211, 155, .35); }
+  .tag.failed, .tag.cancelled { color: var(--failed); border-color: rgba(248, 113, 113, .35); }
+
+  .section { margin-top: 20px; }
+  .section > h3 {
+    margin: 0 0 8px; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--dim); font-weight: 650;
+  }
+  .facts { display: grid; grid-template-columns: 96px 1fr; gap: 5px 12px; font-size: 12.5px; }
+  .facts dt { color: var(--dim); }
+  .facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+
+  .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .timeline li {
+    display: grid; grid-template-columns: 62px 128px 1fr; gap: 10px;
+    padding: 5px 0; border-bottom: 1px solid rgba(29, 42, 56, .6);
+    font-size: 12px; color: var(--muted);
+  }
+  .timeline time { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 11px; }
+  .timeline .kind { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #9fd4ff; }
+  .timeline .kind.err { color: var(--failed); }
+  .timeline .kind.ok { color: var(--done); }
+
+  .run {
+    border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; margin-bottom: 7px;
+    background: rgba(255, 255, 255, .015); font-size: 12.5px;
+  }
+  .run .head { display: flex; gap: 8px; align-items: center; color: var(--muted); }
+  .run .head .ok { color: var(--done); } .run .head .bad { color: var(--failed); }
+  pre {
+    white-space: pre-wrap; word-break: break-all;
+    font: 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: #0a0f15; border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px; max-height: 46vh; overflow: auto; margin: 8px 0 0;
+  }
+  details summary { cursor: pointer; color: #7dd3fc; font-size: 12px; }
+  details[open] summary { margin-bottom: 6px; }
+
+  .composer textarea, .drawer textarea {
+    width: 100%; padding: 9px 10px; resize: vertical;
+    font: inherit; font-size: 13px; color: var(--text);
+    background: #0b1118; border: 1px solid var(--line-2); border-radius: 10px;
+  }
+  .hint { color: var(--dim); font-size: 11.5px; margin: 6px 0 0; }
+
+  /* -------------------------------------------------------------- dialogs */
+  dialog {
+    border: 1px solid var(--line-2); border-radius: 16px; padding: 0;
+    background: var(--panel); color: var(--text); width: min(520px, calc(100vw - 32px));
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .6);
+  }
+  dialog::backdrop { background: rgba(4, 6, 9, .6); backdrop-filter: blur(2px); }
+  dialog form { padding: 18px; }
+  dialog h2 { margin: 0 0 10px; font-size: 15px; }
+  dialog label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px; }
+  dialog input[type="password"], dialog select {
+    width: 100%; padding: 8px 10px; border-radius: 9px; font: inherit; font-size: 13px;
+    background: #0b1118; color: var(--text); border: 1px solid var(--line-2);
+  }
+  .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+  /* ---------------------------------------------------------------- toast */
   #toast {
-    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
-    background: #3b1219; color: #fecaca; border: 1px solid #7f1d1d;
-    border-radius: 10px; padding: 9px 16px; font-size: 13px; max-width: 90vw;
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 80;
+    background: #14202c; color: var(--text); border: 1px solid var(--line-2);
+    border-radius: 11px; padding: 9px 16px; font-size: 13px; max-width: 90vw;
     opacity: 0; pointer-events: none; transition: opacity .18s ease;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, .5);
   }
   #toast.show { opacity: 1; }
+  #toast.error { border-color: #7f1d1d; background: #2a1114; color: #fecaca; }
 
-  @media (max-width: 900px) {
-    main.board { grid-template-columns: 1fr; gap: 22px; padding: 16px 14px 32px; }
-    header.bar { padding: 12px 14px; flex-wrap: wrap; }
-    .col h2 { font-size: 14px; }
+  @media (max-width: 980px) {
+    main.board { grid-template-columns: 1fr 1fr; gap: 12px; padding: 14px; }
+  }
+  @media (max-width: 680px) {
+    main.board { grid-template-columns: 1fr; gap: 20px; }
+    header.topbar { padding: 10px 14px; flex-wrap: wrap; gap: 10px; }
+    .col > header { top: 52px; }
+    .timeline li { grid-template-columns: 52px 1fr; }
+    .timeline .detail { grid-column: 1 / -1; }
   }
 </style>
 </head>
 <body>
-<header class="bar">
+<header class="topbar">
   <div class="brand">
     <span class="mark">◆</span>
     <h1>Hookboard</h1>
     <span id="live" class="dot" title="轮询 /api/board"></span>
   </div>
   <nav id="counts"></nav>
+  <div class="bar-actions">
+    <button id="new-task" class="primary">＋ 新任务</button>
+    <button id="settings" class="ghost" title="API Token 设置">⚙</button>
+  </div>
 </header>
 
 <main class="board" id="board"></main>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-label="任务详情"></aside>
+
+<dialog id="composer">
+  <form method="dialog" id="composer-form">
+    <h2>下发任务指令</h2>
+    <label for="composer-text">指令 / 标题</label>
+    <textarea id="composer-text" rows="5" placeholder="要做什么、验收标准是什么。会按任务流水线走审批再派单。"></textarea>
+    <label for="composer-project">项目</label>
+    <select id="composer-project"><option value="">默认（不指定）</option></select>
+    <p class="hint">写操作需要 API Token（右上角 ⚙ 设置一次，保存在本机浏览器）。</p>
+    <div class="dialog-actions">
+      <button type="button" id="composer-cancel" class="ghost">取消</button>
+      <button type="submit" id="composer-submit" class="primary">创建任务</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="settings-dialog">
+  <form method="dialog" id="settings-form">
+    <h2>API Token</h2>
+    <p class="hint">新建任务、发指令、唤醒/取消任务需要它；只存在这台浏览器里。</p>
+    <label for="token-input">X-Hub-Token</label>
+    <input id="token-input" type="password" autocomplete="off" placeholder="服务端 config 里的 server.api_token">
+    <div class="dialog-actions">
+      <button type="button" id="settings-clear" class="ghost">清除</button>
+      <button type="submit" class="primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
 <div id="toast" role="status" aria-live="polite"></div>
 
 <script>
 (function () {
   "use strict";
+
   var COLUMNS = [
     ["pending", "待处理"],
     ["running", "进行中"],
@@ -154,73 +354,116 @@
   var counts = document.getElementById("counts");
   var liveDot = document.getElementById("live");
   var toastEl = document.getElementById("toast");
+  var drawer = document.getElementById("drawer");
+  var scrim = document.getElementById("scrim");
+  var composer = document.getElementById("composer");
+  var settingsDialog = document.getElementById("settings-dialog");
+
   var lastJson = "";
   var toastTimer = null;
+  var openTaskId = null;
+  var detailHtml = "";
+  var projects = [];
 
   function esc(value) {
     return String(value == null ? "" : value)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
-
-  function num(value) {
-    var n = Number(value);
-    return Number.isFinite(n) ? n : 0;
-  }
-
+  function num(v) { var n = Number(v); return Number.isFinite(n) ? n : 0; }
   function elapsed(ts) {
     var n = Number(ts);
-    if (!Number.isFinite(n)) return "—";
-    var seconds = Math.max(0, Math.floor(Date.now() / 1000 - n));
-    if (seconds < 60) return seconds + "s";
-    if (seconds < 3600) return Math.floor(seconds / 60) + "m";
-    if (seconds < 86400) return Math.floor(seconds / 3600) + "h";
-    return Math.floor(seconds / 86400) + "d";
+    if (!Number.isFinite(n) || !n) return "—";
+    var s = Math.max(0, Math.floor(Date.now() / 1000 - n));
+    if (s < 60) return s + "s";
+    if (s < 3600) return Math.floor(s / 60) + "m";
+    if (s < 86400) return Math.floor(s / 3600) + "h";
+    return Math.floor(s / 86400) + "d";
   }
-
-  function toast(message) {
-    toastEl.textContent = message;
+  function clock(ts) {
+    var n = Number(ts);
+    if (!Number.isFinite(n) || !n) return "—";
+    var d = new Date(n * 1000);
+    return d.toLocaleString("zh-CN", { hour12: false });
+  }
+  function toast(msg, isError) {
+    toastEl.textContent = msg;
+    toastEl.classList.toggle("error", !!isError);
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 4000);
+    toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 4200);
   }
 
+  /* ------------------------------------------------------------ API */
+  function token() { return localStorage.getItem("hookboard_token") || ""; }
+
+  async function writeJSON(url, payload) {
+    if (!token()) { openSettings(); throw new Error("先设置 API Token"); }
+    var response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Hub-Token": token() },
+      body: JSON.stringify(payload)
+    });
+    if (response.status === 401) { openSettings(); throw new Error("API Token 无效"); }
+    var data = await response.json().catch(function () { return {}; });
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.error || data.detail || ("HTTP " + response.status));
+    }
+    return data;
+  }
+
+  function openSettings() {
+    document.getElementById("token-input").value = token();
+    if (!settingsDialog.open) settingsDialog.showModal();
+  }
+  document.getElementById("settings").addEventListener("click", openSettings);
+  document.getElementById("settings-form").addEventListener("submit", function (event) {
+    event.preventDefault();
+    localStorage.setItem("hookboard_token", document.getElementById("token-input").value.trim());
+    settingsDialog.close();
+    toast("Token 已保存");
+  });
+  document.getElementById("settings-clear").addEventListener("click", function () {
+    localStorage.removeItem("hookboard_token");
+    settingsDialog.close();
+    toast("Token 已清除");
+  });
+
+  /* ---------------------------------------------------- board rendering */
   function approvalHtml(task) {
     var ap = task.approval;
     if (!ap) return "";
-    var token = esc(ap.token);
+    var tokenValue = esc(ap.token);
     var options = Array.isArray(ap.options) ? ap.options : [];
-    var recommend = Number.isFinite(Number(ap.recommend)) ? Number(ap.recommend) : 0;
+    var recommend = num(ap.recommend);
     var buttons = options.map(function (label, index) {
-      var cls = index === recommend ? "primary" : "";
-      return '<button class="' + cls + '" data-decide="' + index + '" data-token="' +
-        token + '">' + esc(label) + "</button>";
+      return '<button class="small' + (index === recommend ? " primary" : "") +
+        '" data-decide="' + index + '" data-token="' + tokenValue + '">' + esc(label) + "</button>";
     }).join("");
     return '<div class="approval">' +
       '<p class="q">' + esc(ap.question) + "</p>" +
       '<div class="opts">' + buttons + "</div>" +
-      '<textarea rows="2" placeholder="或者直接说（提交视为通过）"></textarea>' +
-      '<button class="send" data-send="1" data-token="' + token + '">提交</button>' +
+      '<textarea rows="2" placeholder="补充意见（提交视为通过）"></textarea>' +
+      '<button class="send" data-send="1" data-token="' + tokenValue + '">提交</button>' +
       "</div>";
   }
 
   function cardHtml(task) {
     var note = task.note ? '<p class="note">' + esc(task.note) + "</p>" : "";
-    return '<article class="card">' +
+    var live = task.session ? '<span class="badge-live" title="' + esc(task.session) + '">已派单</span>' : "";
+    return '<article class="card st-' + esc(task.status) + '" data-id="' + esc(task.id) + '" tabindex="0">' +
       '<div class="top"><span class="src">' + esc(task.source) + "</span>" +
       '<span class="ext" title="' + esc(task.external_id) + '">' + esc(task.external_id) + "</span></div>" +
       "<h3>" + esc(task.title) + "</h3>" +
       '<div class="meta"><span class="stage">' + esc(task.stage) + "</span><span>·</span><span>" +
-      elapsed(task.created_at) + "</span></div>" +
+      elapsed(task.created_at) + "</span>" + live + "</div>" +
       note +
       approvalHtml(task) +
       "</article>";
   }
 
   function columnHtml(key, title, tasks) {
-    var body = tasks.length
-      ? tasks.map(cardHtml).join("")
-      : '<div class="empty">暂无</div>';
+    var body = tasks.length ? tasks.map(cardHtml).join("") : '<div class="empty">暂无</div>';
     return '<section class="col col-' + key + '">' +
       '<header><span class="pulse"></span><h2>' + title + "</h2>" +
       '<span class="n">' + tasks.length + "</span></header>" + body + "</section>";
@@ -236,68 +479,216 @@
 
     var totals = data.counts || {};
     counts.innerHTML = COLUMNS.map(function (pair) {
-      return '<span class="chip chip-' + pair[0] + '"><b>' + num(totals[pair[0]]) +
+      return '<span class="chip chip-' + pair[0] + '"><i></i><b>' + num(totals[pair[0]]) +
         "</b>" + pair[1] + "</span>";
     }).join("");
+
+    if (Array.isArray(data.projects) && data.projects.join() !== projects.join()) {
+      projects = data.projects;
+      var select = document.getElementById("composer-project");
+      select.innerHTML = '<option value="">默认（不指定）</option>' + projects.map(function (name) {
+        return '<option value="' + esc(name) + '">' + esc(name) + "</option>";
+      }).join("");
+    }
   }
 
   function isTyping() {
     var active = document.activeElement;
-    if (!active || !board.contains(active)) return false;
+    if (!active) return false;
+    if (!board.contains(active) && !drawer.contains(active)) return false;
     return active.tagName === "TEXTAREA" || active.tagName === "INPUT";
   }
 
   async function refresh() {
-    if (isTyping()) return; // don't yank the textarea out from under the user
+    if (isTyping()) return;
     try {
       var response = await fetch("/api/board", { cache: "no-store" });
       var data = await response.json();
       var encoded = JSON.stringify(data);
-      if (encoded !== lastJson) {
-        render(data);
-        lastJson = encoded;
-      }
+      if (encoded !== lastJson) { render(data); lastJson = encoded; }
       liveDot.className = "dot on";
+      if (openTaskId && drawer.hidden === false) refreshDetail(openTaskId);
     } catch (err) {
       liveDot.className = "dot off";
     }
   }
 
-  var inflight = {}; // token -> true; blocks double submits
+  /* --------------------------------------------------------- detail view */
+  function factsHtml(task) {
+    var rows = [
+      ["状态", task.status + " / " + task.stage],
+      ["项目", task.project || "—"],
+      ["派单目标", task.workspace ? task.workspace + (task.branch ? " @ " + task.branch : "") : "—"],
+      ["会话", task.session || "—"],
+      ["来源 / 类型", task.source + " · " + task.kind],
+      ["条目", task.external_id],
+      ["创建", clock(task.created_at) + "（" + elapsed(task.created_at) + "）"],
+      ["更新", clock(task.updated_at)],
+      ["尝试", String(num(task.attempts))]
+    ];
+    return '<dl class="facts">' + rows.map(function (row) {
+      return "<dt>" + esc(row[0]) + "</dt><dd" +
+        (row[0] === "会话" || row[0] === "派单目标" || row[0] === "条目" ? ' class="mono"' : "") +
+        ">" + esc(row[1]) + "</dd>";
+    }).join("") + "</dl>";
+  }
 
-  async function decide(token, payload, trigger) {
-    if (inflight[token]) return; // already submitting this approval
-    inflight[token] = true;
+  function eventsHtml(events) {
+    if (!events || !events.length) return '<p class="hint">暂无事件</p>';
+    return '<ul class="timeline">' + events.slice().reverse().map(function (event) {
+      var kind = String(event.kind || "");
+      var cls = /error|fail/.test(kind) ? " err" : (/done|approved|message$/.test(kind) ? " ok" : "");
+      return "<li><time>" + esc(clock(event.ts).replace(/^.*?\s/, "")) + "</time>" +
+        '<span class="kind' + cls + '">' + esc(kind) + "</span>" +
+        '<span class="detail">' + esc(event.detail || "") + "</span></li>";
+    }).join("") + "</ul>";
+  }
+
+  function runsHtml(runs) {
+    if (!runs || !runs.length) return '<p class="hint">暂无运行记录</p>';
+    return runs.slice().reverse().map(function (run) {
+      var seconds = Math.max(0, Math.round((run.finished_at || run.started_at || 0) - (run.started_at || 0)));
+      return '<div class="run"><div class="head">' +
+        '<span class="' + (run.ok ? "ok" : "bad") + '">' + (run.ok ? "✓" : "✗") + "</span>" +
+        "<b>" + esc(run.stage) + "</b><span>" + esc(run.agent) + "</span>" +
+        '<span style="margin-left:auto">' + seconds + "s</span></div>" +
+        (run.output ? '<details><summary>输出</summary><pre>' + esc(String(run.output).slice(0, 4000)) + "</pre></details>" : "") +
+        "</div>";
+    }).join("");
+  }
+
+  function approvalDetailHtml(detail) {
+    var open = (detail.approvals || []).filter(function (ap) { return ap.status === "open"; });
+    if (!open.length) return "";
+    return open.map(function (ap) {
+      var tokenValue = esc(ap.token);
+      var recommend = num(ap.recommend);
+      var buttons = (ap.options || []).map(function (label, index) {
+        return '<button class="small' + (index === recommend ? " primary" : "") +
+          '" data-decide="' + index + '" data-token="' + tokenValue + '">' + esc(label) + "</button>";
+      }).join("");
+      return '<div class="section"><h3>等你审批 · ' + esc(ap.stage) + "</h3>" +
+        '<p class="hint">' + esc(ap.question) + "</p>" +
+        '<div class="opts">' + buttons + "</div>" +
+        '<textarea rows="2" style="margin-top:8px" placeholder="补充意见（提交视为通过）"></textarea>' +
+        '<button class="send" data-send="1" data-token="' + tokenValue + '">提交这段话</button></div>';
+    }).join("");
+  }
+
+  function messageBoxHtml(task) {
+    if (task.status !== "running" || !task.session) return "";
+    return '<div class="section"><h3>给运行中的会话发指令</h3>' +
+      '<textarea id="drawer-message" rows="3" placeholder="补充要求、纠正方向、让它先停下来（忙时会作为下一轮消息）"></textarea>' +
+      '<div class="dialog-actions" style="margin-top:8px">' +
+      '<button id="drawer-send">发送指令</button></div></div>';
+  }
+
+  function drawerBodyHtml(detail) {
+    var task = detail.task;
+    return '<header><div><div class="badges">' +
+      '<span class="tag ' + esc(task.status) + '">' + esc(task.status) + "</span>" +
+      '<span class="stage">' + esc(task.stage) + "</span>" +
+      '<span class="tag">' + esc(task.source) + "</span>" +
+      "</div><h2>" + esc(task.title) + "</h2></div>" +
+      '<button class="close small ghost" data-close="1">关闭</button></header>' +
+      '<div class="body">' +
+      '<div class="section"><h3>概览</h3>' + factsHtml(task) +
+      (task.note ? '<p class="hint" style="margin-top:10px">' + esc(task.note) + "</p>" : "") + "</div>" +
+      approvalDetailHtml(detail) +
+      messageBoxHtml(task) +
+      '<div class="section"><h3>事件</h3>' + eventsHtml(detail.events) + "</div>" +
+      '<div class="section"><h3>运行记录</h3>' + runsHtml(detail.runs) + "</div>" +
+      '<div class="section"><h3>原始报文</h3><details><summary>展开 payload</summary><pre>' +
+      esc(JSON.stringify(task.payload || {}, null, 2)) + "</pre></details></div>" +
+      "</div>" +
+      '<div class="foot">' +
+      (task.status === "pending" ? '<button class="small" data-wake="1">唤醒</button>' : "") +
+      (["pending", "running", "waiting"].indexOf(task.status) >= 0
+        ? '<button class="small danger" data-cancel="1">取消任务</button>' : "") +
+      "</div>";
+  }
+
+  async function refreshDetail(id) {
+    // Don't clobber a draft the person is writing in the drawer.
+    var drafts = drawer.querySelectorAll("textarea");
+    for (var d = 0; d < drafts.length; d += 1) {
+      if (drafts[d].value.trim()) return;
+    }
+    try {
+      var response = await fetch("/api/tasks/" + id, { cache: "no-store" });
+      var detail = await response.json();
+      if (!detail.ok) throw new Error(detail.error || "任务不存在");
+      var html = drawerBodyHtml(detail);
+      if (html !== detailHtml) {
+        var scroll = drawer.querySelector(".body");
+        var top = scroll ? scroll.scrollTop : 0;
+        drawer.innerHTML = html;
+        detailHtml = html;
+        var next = drawer.querySelector(".body");
+        if (next) next.scrollTop = top;
+      }
+      if (drawer.hidden) { drawer.hidden = false; scrim.hidden = false; }
+    } catch (err) {
+      toast(err.message, true);
+      closeDrawer();
+    }
+  }
+
+  function openDrawer(id) {
+    openTaskId = Number(id);
+    detailHtml = "";
+    drawer.hidden = false;
+    scrim.hidden = false;
+    drawer.innerHTML = '<div class="body"><p class="hint">加载中…</p></div>';
+    refreshDetail(openTaskId);
+  }
+
+  function closeDrawer() {
+    openTaskId = null;
+    detailHtml = "";
+    drawer.hidden = true;
+    scrim.hidden = true;
+    drawer.innerHTML = "";
+  }
+  scrim.addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !drawer.hidden) closeDrawer();
+  });
+
+  /* --------------------------------------------------------- decisions */
+  var inflight = {};
+
+  async function decide(tokenValue, payload, trigger) {
+    if (inflight[tokenValue]) return;
+    inflight[tokenValue] = true;
     var box = trigger ? trigger.closest(".approval") : null;
-    var buttons = box ? Array.prototype.slice.call(box.querySelectorAll("button")) : [];
+    var buttons = trigger ? Array.prototype.slice.call(trigger.closest("div, .section").querySelectorAll("button")) : [];
     var label = trigger ? trigger.textContent : "";
     buttons.forEach(function (b) { b.disabled = true; });
     if (trigger) trigger.textContent = "提交中…";
     try {
-      var response = await fetch("/a/" + encodeURIComponent(token), {
+      var response = await fetch("/a/" + encodeURIComponent(tokenValue), {
         method: "POST",
         headers: { "Content-Type": "application/json", "Accept": "application/json" },
         body: JSON.stringify(payload)
       });
       var data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || ("HTTP " + response.status));
-      if (data.changed === false) {
-        toast("这条已经处理过了");
-      } else {
-        toast(payload.index === 1 ? "已打回" : "已通过");
-      }
+      toast(data.changed === false ? "这条已经处理过了" : (payload.index === 1 ? "已打回" : "已通过"));
       if (box) box.innerHTML = '<p class="q done">已提交，正在刷新…</p>';
     } catch (err) {
-      toast("提交失败：" + err.message);
+      toast("提交失败：" + err.message, true);
       buttons.forEach(function (b) { b.disabled = false; });
       if (trigger) trigger.textContent = label;
     } finally {
-      delete inflight[token];
+      delete inflight[tokenValue];
       lastJson = "";
       refresh();
+      if (openTaskId) refreshDetail(openTaskId);
     }
   }
 
+  /* -------------------------------------------------------------- events */
   board.addEventListener("click", function (event) {
     var button = event.target.closest("[data-decide]");
     if (button) {
@@ -306,10 +697,110 @@
     }
     var send = event.target.closest("[data-send]");
     if (send) {
-      var box = send.closest(".approval").querySelector("textarea");
-      var text = box ? box.value.trim() : "";
-      if (!text) { toast("先写一句再提交"); return; }
+      var area = send.closest(".approval, .section").querySelector("textarea");
+      var text = area ? area.value.trim() : "";
+      if (!text) { toast("先写一句再提交", true); return; }
       decide(send.dataset.token, { text: text }, send);
+      return;
+    }
+    if (event.target.closest("textarea, input, select")) return;
+    var card = event.target.closest(".card");
+    if (card) openDrawer(card.dataset.id);
+  });
+  board.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter") return;
+    if (event.target.closest("textarea, input, select, button")) return;
+    var card = event.target.closest(".card");
+    if (card) openDrawer(card.dataset.id);
+  });
+
+  drawer.addEventListener("click", async function (event) {
+    if (event.target.closest("[data-close]")) { closeDrawer(); return; }
+
+    var decideButton = event.target.closest("[data-decide]");
+    if (decideButton) {
+      decide(decideButton.dataset.token, { index: Number(decideButton.dataset.decide) }, decideButton);
+      return;
+    }
+    var sendApproval = event.target.closest("[data-send]");
+    if (sendApproval) {
+      var area = sendApproval.closest(".section").querySelector("textarea");
+      var text = area ? area.value.trim() : "";
+      if (!text) { toast("先写一句再提交", true); return; }
+      decide(sendApproval.dataset.token, { text: text }, sendApproval);
+      return;
+    }
+
+    if (event.target.closest("#drawer-send")) {
+      var box = document.getElementById("drawer-message");
+      var message = box ? box.value.trim() : "";
+      if (!message) { toast("先写一句指令", true); return; }
+      var button = event.target.closest("#drawer-send");
+      button.disabled = true;
+      button.textContent = "发送中…";
+      try {
+        var result = await writeJSON("/api/tasks/" + openTaskId + "/message", { text: message });
+        toast(result.ok ? "指令已送达会话" : "会话返回：失败", !result.ok);
+        if (box) box.value = "";
+      } catch (err) {
+        toast("发送失败：" + err.message, true);
+      } finally {
+        button.disabled = false;
+        button.textContent = "发送指令";
+        refreshDetail(openTaskId);
+      }
+      return;
+    }
+
+    if (event.target.closest("[data-cancel]")) {
+      if (!confirm("取消这个任务？正在进行的 agent 不会被强杀，但任务不再推进。")) return;
+      try {
+        await writeJSON("/api/tasks/" + openTaskId + "/cancel", {});
+        toast("任务已取消");
+        refreshDetail(openTaskId);
+      } catch (err) { toast("取消失败：" + err.message, true); }
+      return;
+    }
+
+    if (event.target.closest("[data-wake]")) {
+      try {
+        await writeJSON("/api/tasks/" + openTaskId + "/wake", {});
+        toast("已唤醒，等待 worker 处理");
+        refreshDetail(openTaskId);
+      } catch (err) { toast("唤醒失败：" + err.message, true); }
+    }
+  });
+
+  /* ------------------------------------------------------------ composer */
+  document.getElementById("new-task").addEventListener("click", function () {
+    document.getElementById("composer-text").value = "";
+    composer.showModal();
+    document.getElementById("composer-text").focus();
+  });
+  document.getElementById("composer-cancel").addEventListener("click", function () {
+    composer.close();
+  });
+  document.getElementById("composer-form").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    var text = document.getElementById("composer-text").value.trim();
+    if (!text) { toast("先写指令", true); return; }
+    var project = document.getElementById("composer-project").value;
+    var submit = document.getElementById("composer-submit");
+    submit.disabled = true;
+    submit.textContent = "创建中…";
+    try {
+      var payload = { title: text, kind: "instruction", source: "web" };
+      if (project) payload.project = project;
+      var data = await writeJSON("/api/tasks", payload);
+      composer.close();
+      toast("任务 #" + data.task_id + " 已创建");
+      lastJson = "";
+      refresh();
+    } catch (err) {
+      toast("创建失败：" + err.message, true);
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "创建任务";
     }
   });
 

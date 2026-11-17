@@ -279,6 +279,17 @@ class Engine:
         result["agent"] = f"step:{task['stage']}"
         return result
 
+    def send_message(self, task: dict, text: str) -> dict:
+        """Relay a human instruction into the task's running agent session."""
+        if not task.get("session"):
+            raise ValueError("任务还没有会话（未派单），无法发送指令")
+        agent = self.agent_for(task)
+        result = agent.send(task, text)
+        ok = bool(result.get("ok"))
+        detail = str(result.get("detail") or "")
+        self.store.add_event(task["id"], "message" if ok else "message_error", text[:2000])
+        return {"ok": ok, "detail": detail}
+
     def _apply(self, task: dict, result: dict) -> None:
         status = result.get("status") or "pending"
         fields: dict = {"status": status}
