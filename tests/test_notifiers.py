@@ -134,6 +134,55 @@ class OutboxPayloadTest(unittest.TestCase):
         self.assertEqual(payload["msg_type"], "interactive")
 
 
+    def test_feishu_send_uses_configured_receive_id_type(self):
+        # Real-send path (creds present, not dry_run): the request URL must carry
+        # the configured receive_id_type and the body the configured receive_id —
+        # the target is config-driven, not hardcoded to a group.
+        notifier = FeishuNotifier(
+            {
+                "enabled": True,
+                "app_id": "cli_example",
+                "app_secret": "x",
+                "receive_id_type": "open_id",
+                "receive_id": "ou_example_user",
+            },
+            str(self.outbox),
+        )
+        notifier.context = self._feishu_context()
+        captured = {}
+
+        class FakeResp:
+            def __init__(self, body):
+                self._body = body
+
+            def read(self):
+                return json.dumps(self._body).encode("utf-8")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_urlopen(req, timeout=None):
+            if "tenant_access_token" in req.full_url:
+                return FakeResp({"code": 0, "tenant_access_token": "t", "expire": 7200})
+            captured["url"] = req.full_url
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return FakeResp({"code": 0, "msg": "success"})
+
+        with mock.patch.dict(os.environ, {"HUB_OUTBOX": ""}), mock.patch(
+            "hub.adapters.feishu_notifier.urllib.request.urlopen", side_effect=fake_urlopen
+        ):
+            result = notifier.ask("需要审批", "详情", URL, ["通过", "打回"])
+
+        self.assertTrue(result["ok"])
+        self.assertIn("receive_id_type=open_id", captured["url"])
+        self.assertEqual(captured["body"]["receive_id"], "ou_example_user")
+        self.assertEqual(captured["body"]["msg_type"], "interactive")
+        self.assertEqual(self._files(), [])  # a real send writes no outbox artifact
+
+
 class CountingNotifier:
     name = "counting"
 

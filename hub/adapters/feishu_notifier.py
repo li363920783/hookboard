@@ -5,7 +5,7 @@ link (``/a/<token>``); the interactive card only carries two url buttons.
 
 Flow (real send):
   1. POST /open-apis/auth/v3/tenant_access_token/internal  {app_id, app_secret}
-  2. POST /open-apis/im/v1/messages?receive_id_type=chat_id
+  2. POST /open-apis/im/v1/messages?receive_id_type=<chat_id|open_id|union_id|user_id|email>
      Authorization: Bearer <tenant_access_token>
      {receive_id, msg_type: "interactive", content: "<card JSON string>"}
 
@@ -14,8 +14,9 @@ no request is made — the full send request body is written to
 ``data/outbox/<ts>-feishu.json``.  Missing credentials log a single warning and
 never crash or block the task.
 
-Credentials come only from config (``notifiers.feishu.app_id / app_secret /
-chat_id / enabled``); no real value is stored in the repo.
+Target and credentials come only from config (``notifiers.feishu.app_id /
+app_secret / receive_id_type / receive_id / enabled``); no real value and no
+user-specific identity is stored in the repo.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import urllib.request
 from .base import outbox_enabled, write_outbox
 
 TOKEN_URL = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-SEND_URL = "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+SEND_URL = "https://open.feishu.cn/open-apis/im/v1/messages"
 
 
 class FeishuNotifier:
@@ -38,7 +39,10 @@ class FeishuNotifier:
         self.enabled = bool(entry.get("enabled", True))
         self.app_id = entry.get("app_id") or ""
         self.app_secret = entry.get("app_secret") or ""
-        self.chat_id = entry.get("chat_id") or ""
+        # Standard Feishu im/v1/messages target: chat_id (group) or open_id /
+        # union_id / user_id / email (P2P). Pure config; no identity baked in.
+        self.receive_id_type = entry.get("receive_id_type") or "chat_id"
+        self.receive_id = entry.get("receive_id") or entry.get("chat_id") or ""
         self.timeout = float(entry.get("timeout", 10))
         self.dry_run = outbox_enabled(entry)
         self.outbox_dir = outbox_dir
@@ -47,7 +51,7 @@ class FeishuNotifier:
 
     @property
     def has_creds(self) -> bool:
-        return bool(self.app_id and self.app_secret and self.chat_id)
+        return bool(self.app_id and self.app_secret and self.receive_id)
 
     # ------------------------------------------------------------------ card
 
@@ -101,7 +105,7 @@ class FeishuNotifier:
     def _request_body(self, title: str, url: str) -> dict:
         card = self._card(title, url)
         return {
-            "receive_id": self.chat_id,
+            "receive_id": self.receive_id,
             "msg_type": "interactive",
             "content": json.dumps(card, ensure_ascii=False),
         }
@@ -123,7 +127,7 @@ class FeishuNotifier:
             if not self.has_creds and not self.dry_run and not self._warned:
                 self._warned = True
                 print(
-                    "warn: feishu credentials missing (app_id/app_secret/chat_id); "
+                    "warn: feishu credentials missing (app_id/app_secret/receive_id); "
                     "writing to outbox instead of sending",
                     file=sys.stderr,
                 )
@@ -155,7 +159,7 @@ class FeishuNotifier:
         try:
             token = self._tenant_token()
             request = urllib.request.Request(
-                SEND_URL,
+                f"{SEND_URL}?receive_id_type={self.receive_id_type}",
                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 headers={
                     "Content-Type": "application/json",

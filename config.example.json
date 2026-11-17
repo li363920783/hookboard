@@ -38,7 +38,8 @@
       "enabled": true,
       "app_id": "",
       "app_secret": "",
-      "chat_id": "",
+      "receive_id_type": "chat_id",
+      "receive_id": "",
       "dry_run": true
     },
     "webhook": {

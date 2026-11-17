@@ -83,7 +83,7 @@ file is `config.example.json` and runs out of the box.
   "agents": {"default": {"type": "shell", "command": "echo done"}},
   "notifiers": {
     "feishu": {"type": "feishu", "enabled": true, "app_id": "", "app_secret": "",
-               "chat_id": "", "dry_run": true},
+               "receive_id_type": "chat_id", "receive_id": "", "dry_run": true},
     "webhook": {"type": "webhook", "url": "https://example.com/hook", "dry_run": true},
     "email": {"type": "email", "host": "smtp.example.com", "port": 465, "tls": "ssl",
               "user": "bot@example.com", "password": "", "from": "bot@example.com",
@@ -164,12 +164,15 @@ only delivers that link to a human. M1 ships **`feishu` (the default approval ch
 - **Never blocks**: a failed send logs `events(kind=notify_error)` and retries once; the gate stays
   answerable on the board regardless.
 - **Credentials** come only from config / environment (`HUB_EMAIL_PASSWORD`, webhook headers,
-  `feishu.app_id / app_secret / chat_id`); none are stored in the repo.
+  `feishu.app_id / app_secret / receive_id`); none are stored in the repo.
 
 `feishu` uses a self-built app: it fetches a `tenant_access_token` and posts an interactive card
-(schema 2.0) with two url buttons — **去处理** (`/a/<token>`) and **打开看板** (`/`). It never uses a
-long-connection or event subscription to collect approvals; the decision always happens on the web
-page. With missing credentials it logs one warning and falls back to the outbox instead of crashing.
+(schema 2.0) with two url buttons — **去处理** (`/a/<token>`) and **打开看板** (`/`). The target is
+config-driven via `receive_id_type` (`chat_id` for a group, `open_id` / `union_id` / `user_id` /
+`email` for a person) plus `receive_id` — the standard Feishu message API, with no identity baked
+into the code. It never uses a long-connection or event subscription to collect approvals; the
+decision always happens on the web page. With missing credentials it logs one warning and falls
+back to the outbox instead of crashing.
 
 ## Validate it yourself
 

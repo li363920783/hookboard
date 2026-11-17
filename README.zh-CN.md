@@ -77,7 +77,7 @@ curl -s -X POST http://127.0.0.1:8899/hooks/generic \
   "agents": {"default": {"type": "shell", "command": "echo done"}},
   "notifiers": {
     "feishu": {"type": "feishu", "enabled": true, "app_id": "", "app_secret": "",
-               "chat_id": "", "dry_run": true},
+               "receive_id_type": "chat_id", "receive_id": "", "dry_run": true},
     "webhook": {"type": "webhook", "url": "https://example.com/hook", "dry_run": true},
     "email": {"type": "email", "host": "smtp.example.com", "port": 465, "tls": "ssl",
               "user": "bot@example.com", "password": "", "from": "bot@example.com",
@@ -152,11 +152,13 @@ M1 内置的三个实现就是给接入者抄的样例：
 - **不重发**：同一 `(task_id, stage, notifier)` 只发一次，靠库里一行占位去重。
 - **不阻塞**：通知失败只记 `events(kind=notify_error)` 并重试 1 次；审批照旧能在看板上处理。
 - **凭据**只从配置 / 环境变量读（`HUB_EMAIL_PASSWORD`、webhook header、
-  `feishu.app_id / app_secret / chat_id`），仓库里不存任何真实 key。
+  `feishu.app_id / app_secret / receive_id`），仓库里不存任何真实 key。
 
 `feishu` 用自建应用：先取 `tenant_access_token`，再发 interactive 卡片（schema 2.0），两个 url
-按钮——**去处理**（`/a/<token>`）和**打开看板**（`/`）。**不用长连接 / 事件订阅收审批**，决定永远
-在网页上做。缺凭据时只打一行 warn 并落到 outbox，不会崩、不会卡住任务。
+按钮——**去处理**（`/a/<token>`）和**打开看板**（`/`）。发送目标纯配置驱动：`receive_id_type`
+（`chat_id` 发群，`open_id` / `union_id` / `user_id` / `email` 发个人）+ `receive_id`，就是飞书
+标准消息 API，代码里不嵌任何具体身份。**不用长连接 / 事件订阅收审批**，决定永远在网页上做。缺凭据
+时只打一行 warn 并落到 outbox，不会崩、不会卡住任务。
 
 ## 自己跑一遍
 
