@@ -102,6 +102,8 @@ class DigestTestCase(unittest.TestCase):
         self.assertEqual(done["status"], "done")
         runs = self.store.task_detail(task["id"])["runs"]
         self.assertTrue(any(run["agent"] == "step:finish" for run in runs))
+        # A successful final step finishes the task; it is not a failure.
+        self.assertIsNone(done["note"])
 
     def test_step_sees_the_ticket_id_in_env(self):
         self.cfg.projects["tapd"]["steps"]["finish"] = "echo \"id=$HUB_EXTERNAL_ID\""

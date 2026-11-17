@@ -224,7 +224,7 @@ class Engine:
             "status": status,
             "stage": following if status == "pending" else None,
             "note": None
-            if status == "pending"
+            if status in ("pending", "done")
             else (result.get("note") or result.get("error") or "agent failed"),
         }
 
