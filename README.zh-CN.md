@@ -131,6 +131,37 @@ shell agent 以 `workspace` 为工作目录运行，并拿到 `HUB_PROJECT` / `H
 
 项目名写错返回 HTTP 400，明着失败，不会悄悄按错误的规则跑。没配置 `projects` 时路由被忽略。
 
+## Webhook 入站
+
+外部系统推事件时发的是**它自己的**签名，发不了我们的 `X-Hub-Token`。所以密钥和校验方式按 source 配，
+代码里没有厂商分支，GitHub、GitLab、TAPD、自建系统都是同一套：
+
+```json
+"sources": {
+  "github": {
+    "type": "generic",
+    "map": {"title": "pull_request.title"},
+    "headers": {"kind": "X-GitHub-Event", "external_id": "X-GitHub-Delivery"},
+    "auth": {"type": "hmac_sha256", "header": "X-Hub-Signature-256",
+             "secret_env": "HUB_GITHUB_SECRET"}
+  },
+  "gitlab": {
+    "type": "generic",
+    "map": {"title": "object_attributes.title"},
+    "headers": {"kind": "X-Gitlab-Event"},
+    "auth": {"type": "token", "header": "X-Gitlab-Token",
+             "secret_env": "HUB_GITLAB_SECRET"}
+  }
+}
+```
+
+- `headers` 从请求头取值，**优先于** body 里的 `map`。GitHub 用它把事件名当 `kind`、把
+  `X-GitHub-Delivery` 当 `external_id`——同一个投递重发自动去重。
+- `auth.type`：`hmac_sha256`（对原始请求体算 hex 摘要，带不带 `sha256=` 前缀都认）或 `token`
+  （头里的值直接比对）。密钥来自 `secret_env` 或内联 `secret`。
+- 配了 `auth` 但拿不到密钥时**一律 401**（fail closed），不会退化成不校验。
+- 配了 `auth` 的 URL 不再要求 `X-Hub-Token`；没配的照旧要求，未知 source 也要先过全局校验。
+
 ## HTTP API
 
 | 方法 | 路径 | 作用 |
@@ -246,7 +277,7 @@ pip install 'hookboard[feishu]'
 ## 自己跑一遍
 
 ```bash
-python3 -m unittest discover -s tests -v      # 39 个用例：状态机 + 通知 + 入站网关 + 路由
+python3 -m unittest discover -s tests -v      # 59 个用例：状态机 + 通知 + 入站网关 + 路由 + webhook 校验
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 条判据 + 5 分钟 demo + OUTBOX 渠道；需要 curl + jq
 ```
 

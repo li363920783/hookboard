@@ -145,14 +145,19 @@ class Handler(BaseHTTPRequestHandler):
     def _html(self, text: str, code: int = 200):
         self._send(code, text.encode("utf-8"), "text/html; charset=utf-8")
 
-    def _body(self):
+    def _read_body(self) -> bytes:
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             length = 0
         if length > MAX_BODY:
             raise ValueError("request body too large")
-        raw = self.rfile.read(length) if length > 0 else b""
+        return self.rfile.read(length) if length > 0 else b""
+
+    def _body(self):
+        return self._decode_body(self._read_body())
+
+    def _decode_body(self, raw: bytes):
         if not raw:
             return {}
         content_type = (self.headers.get("Content-Type") or "").lower()
@@ -313,12 +318,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def _hook(self, name: str):
         hub = self.hub
-        if not self._require_token():
-            return
-        if name not in hub.sources:
+        source = hub.sources.get(name)
+        if source is None:
+            if not self._require_token():
+                return
             return self._json({"ok": False, "error": f"unknown source: {name}"}, 404)
-        body = self._body()
-        parsed = hub.sources[name].parse(
+        raw = self._read_body()
+        # A source with its own auth (GitHub HMAC, GitLab token) replaces the
+        # shared X-Hub-Token, since external systems cannot send our header.
+        if getattr(source, "protected", False):
+            if not source.verify(raw, dict(self.headers)):
+                return self._json({"ok": False, "error": "unauthorized"}, 401)
+        elif not self._require_token():
+            return
+        body = self._decode_body(raw)
+        parsed = source.parse(
             body if isinstance(body, dict) else {}, dict(self.headers)
         )
         if not parsed:

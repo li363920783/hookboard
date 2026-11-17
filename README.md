@@ -141,6 +141,39 @@ language grows into half a workflow engine):
 An unknown project name is rejected with HTTP 400 so a typo fails loudly instead of silently running
 under the wrong rules. With no `projects` configured, routing is ignored.
 
+## Inbound webhooks
+
+An external system signs with **its own** secret and cannot send our `X-Hub-Token`. So the secret and
+the verification scheme are configured per source — no vendor branches in code. GitHub, GitLab,
+TAPD and home-grown systems are all the same shape:
+
+```json
+"sources": {
+  "github": {
+    "type": "generic",
+    "map": {"title": "pull_request.title"},
+    "headers": {"kind": "X-GitHub-Event", "external_id": "X-GitHub-Delivery"},
+    "auth": {"type": "hmac_sha256", "header": "X-Hub-Signature-256",
+             "secret_env": "HUB_GITHUB_SECRET"}
+  },
+  "gitlab": {
+    "type": "generic",
+    "map": {"title": "object_attributes.title"},
+    "headers": {"kind": "X-Gitlab-Event"},
+    "auth": {"type": "token", "header": "X-Gitlab-Token",
+             "secret_env": "HUB_GITLAB_SECRET"}
+  }
+}
+```
+
+- `headers` reads values from request headers and **wins over** the body `map`. GitHub uses it to take
+  `kind` from the event name and `external_id` from `X-GitHub-Delivery`, so a redelivery dedupes.
+- `auth.type` is `hmac_sha256` (hex digest of the raw body, `sha256=` prefix optional) or `token`
+  (the header value compared directly). The secret comes from `secret_env` or inline `secret`.
+- Configured `auth` with no secret available rejects **everything** with 401 (fail closed).
+- A source with `auth` no longer requires `X-Hub-Token`; sources without it still do, and an
+  unknown source must still pass the global token.
+
 ## HTTP API
 
 | Method | Path | Purpose |
@@ -271,7 +304,7 @@ warning and the service runs normally.
 ## Validate it yourself
 
 ```bash
-python3 -m unittest discover -s tests -v      # 39 tests: state machine + notifiers + inbound gateway + routing
+python3 -m unittest discover -s tests -v      # 59 tests: state machine + notifiers + inbound gateway + routing + webhook auth
 ACCEPT_PORT=8899 bash scripts/acceptance.sh   # 7 criteria + 5-minute demo + OUTBOX channels; curl + jq
 ```
 
