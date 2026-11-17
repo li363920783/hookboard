@@ -11,3 +11,4 @@ build/
 dist/
 config.yaml
 config.json
+config.json.bak-*
