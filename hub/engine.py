@@ -25,9 +25,36 @@ from .adapters import load_agent, load_notifier
 from .adapters.generic_source import dig_any
 
 
+# Kept short on purpose: a dispatched agent that re-researches or retries in a
+# loop burns tokens and time.  The context a step collected is meant to be used
+# as-is, questions go back to the person, and the delivery has to be checkable.
+_PROMPT_RULES = (
+    "执行约束：上下文已给全，按上下文直接动手，不要重新调研；"
+    "缺信息就在会话里提问，不要反复试错。"
+    "收尾必须给一段给人看的交付说明，按固定四行写："
+    "①改了什么（文件 + 提交/分支）；②怎么验证的（命令与结果）；"
+    "③没做/风险；④还需要人做什么（没有就写「无」）。"
+    "不要用「正在等待…」收尾；卡在外部流程就写清楚卡在哪、谁去推进。"
+)
+
 _TAG = re.compile(r"<[^>]+>")
 _SPACE = re.compile(r"\s+")
 _SECRETISH = re.compile(r"secret|token|passw|sign|api_?key|^key$|^pat$", re.I)
+# Ticket bodies often paste a curl example with a live token; never let one
+# reach a chat card or an agent prompt.
+_SECRET_VALUE = (
+    re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-]{12,}"),
+    re.compile(r"\beyJ[A-Za-z0-9._\-]{12,}"),
+    re.compile(
+        r"(?i)\b(token|secret|password|passwd|pwd|access_?key)\s*[:=]\s*[^\s,;，；]{6,}"
+    ),
+)
+
+
+def scrub_secrets(text: str) -> str:
+    text = _SECRET_VALUE[0].sub(r"\1***", text)
+    text = _SECRET_VALUE[1].sub("***", text)
+    return _SECRET_VALUE[2].sub(r"\1：***", text)
 
 
 def plain_text(value, limit: int = 1000) -> str:
@@ -38,7 +65,21 @@ def plain_text(value, limit: int = 1000) -> str:
     """
     text = _TAG.sub(" ", str(value))
     text = html_lib.unescape(text)
-    return _SPACE.sub(" ", text).strip()[:limit]
+    return scrub_secrets(_SPACE.sub(" ", text).strip())[:limit]
+
+
+def long_text(value, limit: int = 1000) -> str:
+    """Like ``plain_text`` but keeps line breaks and says when it was cut.
+
+    Ticket bodies and agent hand-offs use lines (curl examples, the four-line
+    delivery block); collapsing them into one paragraph loses structure, and
+    silently truncating makes a reviewer decide on half a requirement.
+    """
+    text = html_lib.unescape(_TAG.sub(" ", str(value or "")))
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s*\n\s*", "\n\n", text).strip()
+    text = scrub_secrets(text)
+    return text[:limit] + "\n…（已截断）" if len(text) > limit else text
 
 
 class Engine:
@@ -172,6 +213,10 @@ class Engine:
         if task.get("status") != "running":
             return
         stage = task["stage"]
+        # A follow-up about a ticket that already has a session continues in
+        # that session; only a ticket we have never talked to starts a new one.
+        if stage == self.stages[0] and self._merge_into_previous(task):
+            return
         self.store.add_event(task["id"], "stage", stage)
 
         if stage in self.approve_stages(task):
@@ -220,7 +265,15 @@ class Engine:
         """What an agent (or a stage command) is told about the task."""
         return "\n\n".join(
             part
-            for part in (task.get("title"), task.get("note"), self._task_digest(task, raw=True))
+            for part in (
+                _PROMPT_RULES,
+                task.get("title"),
+                # A collect step may copy a ticket body verbatim, credentials
+                # included; scrub before it reaches a prompt (keep newlines).
+                scrub_secrets(str(task["context"])) if task.get("context") else None,
+                task.get("note"),
+                self._task_digest(task, raw=True),
+            )
             if part
         ).strip()
 
@@ -232,16 +285,22 @@ class Engine:
         agent prompt) appends the payload itself, first 1500 characters; cards
         stay short instead of dumping half a TAPD payload into the chat.
         """
+        payload = task.get("payload")
         lines = [
             f"来源：{task.get('source') or '?'} · 类型：{task.get('kind') or 'hook'} "
             f"· 条目：{task.get('external_id') or '?'}"
         ]
+        # A comment event is about a comment; the ticket it belongs to is
+        # `entity_id`.  Both matter: the comment is deduped, the ticket is
+        # what the agent has to look up.
+        entity = str(payload.get("entity_id") or "") if isinstance(payload, dict) else ""
+        if entity and entity != str(task.get("external_id") or ""):
+            lines.append(f"单据：{entity}")
         if task.get("project"):
             lines.append(f"项目：{task['project']}")
         workspace, branch = self.dispatch_target(task)
         if workspace:
             lines.append(f"派单目标：{workspace}" + (f" @ {branch}" if branch else ""))
-        payload = task.get("payload")
         if isinstance(payload, dict) and payload:
             fields = self.project_spec(task).get("fields") or {}
             if fields:
@@ -364,6 +423,7 @@ class Engine:
             "stage": following if status == "pending" else None,
             "workspace": result.get("workspace"),
             "branch": result.get("branch"),
+            "context": result.get("context"),
             "note": note,
         }
 
@@ -380,6 +440,93 @@ class Engine:
         result = self._run_agent(task, agent=CommandAgent(options))
         result["agent"] = f"step:{task['stage']}"
         return result
+
+    def _ticket_of(self, task: dict) -> str:
+        payload = task.get("payload")
+        if not isinstance(payload, dict):
+            return ""
+        return str(payload.get("entity_id") or payload.get("id") or "")
+
+    def _merge_into_previous(self, task: dict) -> bool:
+        """Send a follow-up into the session of the ticket's earlier task.
+
+        Every comment is its own event (deduped by comment id), so a second
+        comment on the same bug used to start a second agent thread that knew
+        nothing about the first.  Instead: message the existing session, and
+        close this task as merged.  Returns True when the task was merged.
+        """
+        try:
+            ticket = self._ticket_of(task)
+            if not ticket:
+                return False
+            previous = self.store.find_ticket_task(task["source"], ticket, task["id"])
+            if previous is None:
+                return False
+            text = (
+                "工单有新变动，请继续在原会话处理，不要重新调研：\n\n"
+                + f"{task.get('title') or ''}\n\n"
+                + self._task_digest(task)
+            )
+            if not previous.get("session"):
+                # Not dispatched yet (e.g. parked at the plan gate): there is no
+                # thread to send to, so fold the change into the task and let a
+                # single dispatch cover both events.  It goes into `context`,
+                # not `note`: answering the gate clears the note, and the
+                # follow-up would vanish before any agent saw it.
+                if previous["status"] not in ("pending", "waiting"):
+                    return False
+                context = ((previous.get("context") or "") + "\n\n" + text)[:7900]
+                updated = self.store.update_task(
+                    previous["id"], where_status=previous["status"], context=context
+                )
+                if updated is None:
+                    return False
+                self.store.add_event(task["id"], "merged", f"并入任务 #{previous['id']}")
+                self.store.update_task(
+                    task["id"],
+                    where_status="running",
+                    status="done",
+                    note=f"已并入任务 #{previous['id']}（尚未派单，合并进上下文）",
+                )
+                return True
+            if not self.send_message(previous, text).get("ok"):
+                return False  # e.g. the session is gone: run this event normally
+            # The message just sent already started an agent run in that thread,
+            # so the task must poll it.  A task parked at a gate (waiting)
+            # would otherwise leave that run uncollected, and a `pending` one
+            # would re-dispatch a new thread.  A `running` task is already
+            # being watched by its worker; leave it alone.
+            if previous["status"] in ("done", "failed", "pending", "waiting"):
+                delay = float(getattr(self.agent_for(previous), "poll_interval", 15) or 15)
+                now = time.time()
+                gate = self.store.get_approval(previous["id"], previous["stage"])
+                if gate is not None and gate["status"] == "open":
+                    # The card on the table describes the delivery being
+                    # replaced; re-entering the gate will ask afresh.
+                    self.store.invalidate_approval(gate["id"])
+                reopened = self.store.update_task(
+                    previous["id"],
+                    where_status=previous["status"],
+                    status="pending",
+                    stage="work" if "work" in self.stages else previous["stage"],
+                    polling=1,
+                    poll_started_at=now,
+                    next_run_at=now + delay,
+                    note=f"接到新变动，继续原会话（#{task['id']}）",
+                )
+                if reopened is None:
+                    return False
+            self.store.add_event(task["id"], "merged", f"并入任务 #{previous['id']}")
+            self.store.update_task(
+                task["id"],
+                where_status="running",
+                status="done",
+                note=f"已并入任务 #{previous['id']}，变动已发往原会话",
+            )
+            return True
+        except Exception:
+            traceback.print_exc()
+            return False
 
     def send_message(self, task: dict, text: str) -> dict:
         """Relay a human instruction into the task's running agent session."""
@@ -402,6 +549,8 @@ class Engine:
         for key in ("workspace", "branch"):
             if result.get(key):
                 fields[key] = str(result[key])
+        if result.get("context"):
+            fields["context"] = str(result["context"])[:8000]
         if "polling" in result:
             fields["polling"] = 1 if result["polling"] else 0
         if "poll_started_at" in result:
@@ -429,18 +578,44 @@ class Engine:
         stage = task["stage"]
         approval = self.store.get_approval(task["id"], stage)
 
-        if approval is not None and approval["status"] == "answered":
-            # Crash recovery: the decision landed but the task was not advanced.
-            following = self.next_stage(stage)
-            self.store.update_task(
-                task["id"],
-                where_status="running",
-                status="pending" if following else "done",
-                stage=following or stage,
-                next_run_at=None,
+        if approval is not None and approval["status"] != "open":
+            entered = self.store.stage_entered_at(task["id"], stage)
+            # Only a gate that was never re-opened can be a crash recovery: a
+            # decision on a later cycle (attempt > 0) belongs to other work
+            # and must be asked again.
+            if (
+                approval["status"] == "answered"
+                and int(approval.get("attempt") or 0) == 0
+                and float(approval.get("decided_at") or 0) >= entered
+            ):
+                # Crash recovery: the decision landed after the task entered
+                # this stage, but the task was not advanced.
+                following = self.next_stage(stage)
+                self.store.update_task(
+                    task["id"],
+                    where_status="running",
+                    status="pending" if following else "done",
+                    stage=following or stage,
+                    next_run_at=None,
+                )
+                self.store.add_event(task["id"], "approved", f"{stage} (recovered)")
+                return
+            # The previous answer/superseded gate belongs to an earlier cycle:
+            # a follow-up sent this task back into a stage it had already
+            # passed, so ask again instead of waving the new work through.
+            reopened = self.store.reopen_approval(
+                approval["id"],
+                question=f"阶段「{stage}」需要确认：{task['title']}",
+                detail=self._approval_detail(task, stage),
             )
-            self.store.add_event(task["id"], "approved", f"{stage} (recovered)")
-            return
+            if reopened is None:
+                # Another worker already re-opened or decided it: park on
+                # whatever row exists instead of dropping the task.
+                approval = self.store.get_approval(task["id"], stage)
+            else:
+                approval = reopened
+                self.store.add_event(task["id"], "approval_open", f"{stage} (重新确认)")
+                self._dispatch_ask(task, approval)
 
         if approval is None:
             approval, created = self.store.create_approval(
@@ -466,7 +641,8 @@ class Engine:
         """Send the approval link through every configured channel.
 
         Hard constraints from docs/CHANNELS.md:
-        * one send per (task_id, stage, notifier) — atomic placeholder row;
+        * one send per (task_id, stage, attempt, notifier) — atomic placeholder
+          row; ``attempt`` counts re-asks after a follow-up reopened the stage;
         * a failed send logs events(kind=notify_error) and retries once;
         * notification never blocks the task: the gate is already recorded and
           the board can always answer it, even if every channel is down.
@@ -475,9 +651,11 @@ class Engine:
         title = approval["question"]
         body = self._card_body(task, approval["detail"] or task.get("title") or "")
         options = approval["options"]
+        cycle = int(approval.get("attempt") or 0)
+        slot = approval["stage"] if cycle == 0 else f"{approval['stage']}#{cycle}"
         for name, notifier in self.dispatch_targets(task).items():
-            if not self.store.claim_notification(task["id"], approval["stage"], name):
-                continue  # already sent for this (task, stage, channel)
+            if not self.store.claim_notification(task["id"], slot, name):
+                continue  # already sent for this cycle of the stage
             notifier.context = {
                 "task_id": task["id"],
                 "stage": approval["stage"],
@@ -490,7 +668,7 @@ class Engine:
             }
             result = self._try_ask(notifier, name, task["id"], title, body, url, options)
             self.store.finish_notification(
-                task["id"], approval["stage"], name, bool(result.get("ok")), result.get("detail", "")
+                task["id"], slot, name, bool(result.get("ok")), result.get("detail", "")
             )
 
     def _card_body(self, task: dict, detail: str) -> str:
@@ -526,8 +704,12 @@ class Engine:
         """
         parts = [str(task.get("note"))] if task.get("note") else []
         if stage == "review":
-            parts.append("**变动**：计划已通过，agent 已交付（见下）")
-            parts.append(f"**要你决定**：验收「{task.get('title') or ''}」")
+            # 只说「验收标题」等于没说：复核的人要先看到单据要什么，再看
+            # agent 交了什么，才知道差异在哪。
+            if task.get("context"):
+                parts.append("**单据要求**：\n" + long_text(task["context"], 900))
+            else:  # tasks created before the context column existed
+                parts.append("**单据要求**：\n" + self._task_digest(task))
             parts.append(
                 "**agent 交付**：\n" + (self._delivery_summary(task) or "（没有输出记录）")
             )
@@ -536,18 +718,32 @@ class Engine:
                 parts.append(
                     f"**派单目标**：{workspace}" + (f" @ {branch}" if branch else "")
                 )
+            if task.get("session"):
+                parts.append(f"**原会话**：`{task['session']}`（「去处理」→ 发指令）")
+            parts.append(
+                "**通过**：进入收尾（按项目配置回写单据/发版）。"
+                "**打回**：你的意见会发回原会话，agent 重新处理。"
+            )
         else:
+            if task.get("context"):
+                parts.append(long_text(task["context"], 1500))
             parts.append(self._task_digest(task))
         return "\n\n".join(part for part in parts if part)
 
-    def _delivery_summary(self, task: dict, limit: int = 1500) -> str:
-        """Last successful work/finish output — the "what was done" text."""
+    def _delivery_summary(self, task: dict, limit: int = 3000) -> str:
+        """Last successful work/finish output — the "what was done" text.
+
+        Keep the *end*: an agent puts its conclusion, verification and open
+        items last, so cutting the head (after the usual "收到…" preamble) keeps
+        what the reviewer needs.
+        """
         runs = self.store.task_detail(task["id"]).get("runs") or []
         for run in reversed(runs):
             if run.get("stage") in ("work", "finish") and run.get("ok"):
                 text = str(run.get("output") or "").strip()
                 if text:
-                    return plain_text(text, limit)
+                    text = long_text(text, 10**6)
+                    return "…" + text[-(limit - 1):] if len(text) > limit else text
         return ""
 
     @staticmethod
@@ -632,12 +828,75 @@ class Engine:
 
     # ------------------------------------------------------------- decisions
 
+    def _rework_stage(self, gate: str) -> str:
+        """Where a rejected gate sends the task: the stage that delivered.
+
+        Walk back from the gate to the nearest stage that is not itself a
+        gate — that is where the rejected content was produced.  If nothing
+        runs before the gate, return it unchanged so the caller leaves the
+        task failed instead of bouncing into the same approval.
+        """
+        if gate not in self.stages:
+            return gate
+        for stage in reversed(self.stages[: self.stages.index(gate)]):
+            if stage not in self.approve_at:
+                return stage
+        return gate
+
     def decide(self, token: str, *, index=None, text=None, by: str = ""):
-        """Answer an approval through the store, advancing the task once."""
-        return self.store.decide(
+        """Answer an approval through the store, advancing the task once.
+
+        A rejection is a request for changes, not a dead end: when the task has
+        an agent session, the reviewer's note goes back into that session and
+        the task returns to work instead of staying failed.
+        """
+        approval, task, changed = self.store.decide(
             token,
             index=index,
             text=text,
             by=by,
             next_stage=self.next_stage,
         )
+        if (
+            not changed
+            or approval is None
+            or task is None
+            or approval.get("answer_index") in (None, 0)
+            or task.get("status") != "failed"
+            or not task.get("session")
+        ):
+            return approval, task, changed
+        target = self._rework_stage(approval["stage"])
+        if target == approval["stage"]:
+            # Nothing ran before this gate (it is the pipeline's first stage):
+            # there is no rework to do, so the rejection stays failed.
+            return approval, task, changed
+        feedback = (
+            "复核打回，请按意见修改后重新交付，仍然不要重新调研：\n\n"
+            + (approval.get("answer_text") or "")
+        )
+        if not self.send_message(task, feedback).get("ok"):
+            return approval, task, changed  # session gone: keep it failed
+        delay = float(getattr(self.agent_for(task), "poll_interval", 15) or 15)
+        now = time.time()
+        updated = self.store.update_task(
+            task["id"],
+            where_status="failed",
+            status="pending",
+            stage=target,
+            polling=1,
+            poll_started_at=now,
+            next_run_at=now + delay,
+            note="复核打回，意见已发回原会话返工",
+        )
+        if updated is None:
+            # The task was retried/cancelled between the decision and now; the
+            # agent is already working, so surface the orphaned run instead of
+            # reporting a rework that nothing will poll.
+            self.store.add_event(
+                task["id"],
+                "rework_error",
+                "打回意见已发进会话，但任务状态已变化，未重新入队",
+            )
+            return approval, task, changed
+        return approval, updated, changed

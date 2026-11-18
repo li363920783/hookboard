@@ -62,6 +62,14 @@ import os
 import subprocess
 
 
+def _cap(text: str, limit: int = 60000) -> str:
+    """Keep a prompt under the exec env size limit without losing its ends."""
+    if len(text) <= limit:
+        return text
+    head = limit // 3
+    return text[:head] + "\n…（超长截断）…\n" + text[-(limit - head - 12):]
+
+
 class CommandAgent:
     kind = "command"
     name = "command"
@@ -97,6 +105,15 @@ class CommandAgent:
 
     # ------------------------------------------------------------------ run
 
+    def _ticket_id(self, task: dict) -> str:
+        """The ticket the event belongs to (a comment's entity_id, else id)."""
+        payload = task.get("payload")
+        if isinstance(payload, dict):
+            ticket = payload.get("entity_id") or payload.get("id")
+            if ticket:
+                return str(ticket)
+        return str(task.get("external_id") or "")
+
     def _workspace(self, task: dict):
         # A project's `workspace` overrides the agent's own cwd, so different
         # projects can run the same agent in different checkouts.
@@ -114,11 +131,14 @@ class CommandAgent:
                 "HUB_PROJECT": task.get("project") or "",
                 "HUB_WORKSPACE": workspace or "",
                 "HUB_BRANCH": task.get("branch") or "",
-                "HUB_PROMPT": prompt,
+                # Environment blocks have a size limit (~128 KiB total); cut the
+                # middle so both the instructions and the trailing digest survive.
+                "HUB_PROMPT": _cap(prompt),
                 "HUB_MESSAGE": message,
                 "HUB_SOURCE": task.get("source") or "",
                 "HUB_KIND": task.get("kind") or "",
                 "HUB_EXTERNAL_ID": task.get("external_id") or "",
+                "HUB_TICKET_ID": self._ticket_id(task),
                 "HUB_SESSION": task.get("session") or "",
             }
         )
@@ -198,6 +218,7 @@ class CommandAgent:
                 "poll_interval": self.poll_interval,
                 "workspace": parsed.get("workspace"),
                 "branch": parsed.get("branch"),
+                "context": parsed.get("context"),
             }
         note = parsed.get("note")
         if not note and status != "pending":
@@ -213,6 +234,7 @@ class CommandAgent:
             "note": note,
             "workspace": parsed.get("workspace"),
             "branch": parsed.get("branch"),
+            "context": parsed.get("context"),
         }
 
     # -------------------------------------------------------------- parsing
@@ -235,7 +257,7 @@ class CommandAgent:
         if not isinstance(data, dict):
             return {}
         result = {}
-        for key in ("session", "link", "output", "workspace", "branch", "note"):
+        for key in ("session", "link", "output", "workspace", "branch", "note", "context"):
             path = self.parse.get(key)
             if path:
                 value = self._dig(data, path)

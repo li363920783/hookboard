@@ -248,7 +248,9 @@ token. No IM long-connection is involved.
 ### Approval semantics
 
 - `{"index": 0}` → approved; the task advances exactly one stage and becomes `pending`.
-- `{"index": 1}` → rejected; the task becomes `failed` with the decision in its events.
+- `{"index": 1}` → rejected. With an agent session the note is sent back into that session and the
+  task returns to `work`; without one (e.g. the plan gate) the task becomes `failed` with the
+  decision in its events.
 - `{"text": "..."}` (no index) → approved with a comment.
 - Replaying the same decision returns the stored result with `changed: false` and never advances
   the task twice.
@@ -300,6 +302,12 @@ state comes from `thread.status` by default (`parse.state` overrides): `running`
 delivered output. `max_seconds` stops an endless wait; a failing poll command keeps the task alive,
 so a flaky CLI never kills a live run. Workers are free between polls, so two workers supervise any
 number of agents.
+
+**Follow-ups stay in one session.** A new event about a ticket that already has a task (comments
+carry the ticket id as `entity_id`) is not dispatched again: the change is sent into the existing
+agent session, the new task is closed as merged, and a finished task is reopened to poll that
+session — no second thread with no memory of the first. A ticket still parked at a gate with no
+session yet just gets the change folded into its note, so one dispatch covers both.
 
 **Stuck tasks.** A task left in `running` by a restarted or killed service is recovered at startup
 and once a minute. With a session it resumes polling instead of starting a second run (no duplicate

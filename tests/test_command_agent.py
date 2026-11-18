@@ -97,6 +97,25 @@ class CommandAgentTest(unittest.TestCase):
         with self.assertRaises(NotImplementedError):
             CommandAgent({"command": "echo start"}).send({"session": "t-1"}, "hi")
 
+    def test_an_oversized_prompt_keeps_both_ends(self):
+        from hub.adapters.shell_agent import _cap
+
+        capped = _cap("开头" + "x" * 100000 + "结论", 1000)
+        self.assertLessEqual(len(capped), 1000)
+        self.assertTrue(capped.startswith("开头"))
+        self.assertTrue(capped.endswith("结论"))
+
+    def test_ticket_id_prefers_the_ticket_over_the_event(self):
+        agent = CommandAgent({"command": 'echo "$HUB_TICKET_ID"'})
+        comment = agent.start(
+            {"external_id": "comment-1", "payload": {"entity_id": "bug-9", "id": "comment-1"}}, "p"
+        )
+        self.assertEqual(comment["output"].strip(), "bug-9")
+        update = agent.start({"external_id": "bug-9", "payload": {"id": "bug-9"}}, "p")
+        self.assertEqual(update["output"].strip(), "bug-9")
+        bare = agent.start({"external_id": "42"}, "p")
+        self.assertEqual(bare["output"].strip(), "42")
+
     def test_workspace_becomes_cwd(self):
         from tempfile import TemporaryDirectory
 

@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     priority      INTEGER NOT NULL DEFAULT 0,
     session       TEXT,
     note          TEXT,
+    context       TEXT,
     payload_json  TEXT    NOT NULL DEFAULT '{}',
     attempts      INTEGER NOT NULL DEFAULT 0,
     next_run_at   REAL,
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS approvals (
     token         TEXT    NOT NULL UNIQUE,
     created_at    REAL    NOT NULL,
     decided_at    REAL,
+    attempt       INTEGER NOT NULL DEFAULT 0,
     UNIQUE (task_id, stage)
 );
 
@@ -101,6 +103,7 @@ UPDATE_FIELDS = {
     "priority",
     "session",
     "note",
+    "context",
     "next_run_at",
     "lane",
     "workspace",
@@ -145,6 +148,13 @@ class Store:
                 )
             if "poll_started_at" not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN poll_started_at REAL")
+            if "context" not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN context TEXT")
+            approval_columns = {row[1] for row in conn.execute("PRAGMA table_info(approvals)")}
+            if "attempt" not in approval_columns:
+                conn.execute(
+                    "ALTER TABLE approvals ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0"
+                )
 
     @contextmanager
     def _conn(self):
@@ -304,6 +314,31 @@ class Store:
                 self._event(conn, task_id, "requeue", "stale running task recovered")
             return ids
 
+    def find_ticket_task(self, source: str, ticket: str, exclude_id: int) -> dict | None:
+        """Most recent task for the same ticket, cancelled ones excluded.
+
+        A comment event's ``external_id`` is the comment, not the ticket; the
+        ticket comes from the payload (``entity_id`` for comments, ``id`` for
+        creates/updates).  The task may have no session yet (still waiting at
+        an approval gate) — the caller decides how to merge.
+
+        A merged follow-up is closed as a placeholder, so the newest row for a
+        ticket is often a dead end; order live tasks first, then session-bearing
+        ones, so a placeholder never shadows the thread the follow-up belongs in.
+        """
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM tasks WHERE source=? AND id<>? AND status<>'cancelled' "
+                # cast: a numeric payload id extracts as INTEGER, and SQLite
+                # never equates INTEGER with the TEXT parameter.
+                "AND cast(coalesce(json_extract(payload_json,'$.entity_id'), "
+                "json_extract(payload_json,'$.id')) AS TEXT)=? "
+                "ORDER BY (status IN ('pending','running','waiting')) DESC, "
+                "(coalesce(session,'')<>'') DESC, id DESC LIMIT 1",
+                (source, int(exclude_id), str(ticket)),
+            ).fetchone()
+            return _task(row)
+
     def claim_next(self, now: float | None = None) -> dict | None:
         """Pick and claim the next due pending task, or return ``None``."""
         now = time.time() if now is None else now
@@ -460,6 +495,39 @@ class Store:
             )
             return [_approval(row) for row in rows]
 
+    def invalidate_approval(self, approval_id: int) -> None:
+        """Mark an open gate stale (a follow-up reworked the task underneath it)."""
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE approvals SET status='superseded' WHERE id=? AND status='open'",
+                (approval_id,),
+            )
+
+    def reopen_approval(
+        self, approval_id: int, *, question: str, detail: str = ""
+    ) -> dict | None:
+        """Rotate a settled approval back to open for a new cycle of its stage.
+
+        A follow-up can send a finished task back into a stage it already
+        passed; the old decision then says nothing about the new work.  The row
+        is reused (UNIQUE task_id, stage) with a fresh token and a bumped
+        ``attempt`` so the card is sent again instead of being deduped away.
+        """
+        now = time.time()
+        token = secrets.token_urlsafe(18)
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE approvals SET status='open', question=?, detail=?, token=?, "
+                "answer_index=NULL, answer_text=NULL, \"by\"='', decided_at=NULL, "
+                "created_at=?, attempt=attempt+1 WHERE id=? AND status<>'open'",
+                (question, detail, token, now, approval_id),
+            )
+            if cur.rowcount != 1:
+                return None
+            return _approval(
+                conn.execute("SELECT * FROM approvals WHERE id=?", (approval_id,)).fetchone()
+            )
+
     def open_approvals(self, task_ids: list[int] | None = None) -> dict[int, dict]:
         with self._conn() as conn:
             if task_ids:
@@ -615,8 +683,27 @@ class Store:
             conn.execute(
                 "INSERT INTO runs (task_id, stage, agent, started_at, finished_at, ok, output) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (task_id, stage, agent, started_at, finished_at, 1 if ok else 0, output[:4000]),
+                (
+                    task_id,
+                    stage,
+                    agent,
+                    started_at,
+                    finished_at,
+                    1 if ok else 0,
+                    # Keep the tail: an agent's conclusion and verification are
+                    # at the end of its reply, and the card shows this text.
+                    ("…" + output[-3999:]) if len(output) > 4000 else output,
+                ),
             )
+
+    def stage_entered_at(self, task_id: int, stage: str) -> float:
+        """When the task last entered ``stage`` (0 when it never logged one)."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT MAX(ts) FROM events WHERE task_id=? AND kind='stage' AND detail=?",
+                (task_id, stage),
+            ).fetchone()
+            return float(row[0] or 0)
 
     def events_for(self, task_id: int) -> list[dict]:
         with self._conn() as conn:
