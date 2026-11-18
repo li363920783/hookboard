@@ -523,6 +523,26 @@ class DigestTestCase(unittest.TestCase):
         engine.process(self.store.get_task(task["id"]))
         done = self.store.get_task(task["id"])
         self.assertEqual(done["stage"], "finish")
+        self.assertEqual(len(self.agent.messages), 1)  # polling never re-sends
+
+    def test_a_session_step_sends_after_a_crash_before_the_message(self):
+        # requeue_stale turns a stale running task into polling=1; if the crash
+        # happened before the message went out, the stage must send it instead
+        # of watching the previous (finished) run.
+        cfg = Config(stages=["work", "release", "finish"], approve_at=[])
+        cfg.projects = {"tapd": {"steps": {"release": {"session": "请发版", "interval": 0.01}}}}
+        engine = Engine(self.store, cfg, agent=self.agent, notifiers={})
+        task, _ = self.store.create_task(
+            source="tapd", kind="bug", external_id="1", title="单据",
+            stage="release", project="tapd",
+        )
+        self.store.update_task(
+            task["id"], where_status="pending", status="running", session="t-1",
+            polling=1, poll_started_at=1.0,
+        )
+        engine.process(self.store.get_task(task["id"]))
+        self.assertEqual(len(self.agent.messages), 1)
+        self.assertIn("请发版", self.agent.messages[-1])
 
     def test_a_session_step_without_a_session_fails(self):
         cfg = Config(stages=["work", "release", "finish"], approve_at=[])

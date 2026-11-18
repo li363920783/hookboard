@@ -696,6 +696,24 @@ class Store:
                 ),
             )
 
+    def stage_changed_at(self, task_id: int, stage: str) -> float:
+        """When the pipeline moved into ``stage`` (last event from another stage)."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT MAX(ts) FROM events WHERE task_id=? AND kind='stage' AND detail<>?",
+                (task_id, stage),
+            ).fetchone()
+            return float(row[0] or 0)
+
+    def session_step_at(self, task_id: int, stage: str) -> float:
+        """When this pass of ``stage`` last messaged the agent session (0 if never)."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT MAX(ts) FROM events WHERE task_id=? AND kind='session_step' AND detail=?",
+                (task_id, stage),
+            ).fetchone()
+            return float(row[0] or 0)
+
     def stage_entered_at(self, task_id: int, stage: str) -> float:
         """When the task last entered ``stage`` (0 when it never logged one)."""
         with self._conn() as conn:

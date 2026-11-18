@@ -459,16 +459,33 @@ class Engine:
                 "status": "failed",
                 "note": "该阶段需要已有会话，但任务没有会话（未派单）",
             }
-        if task.get("polling"):
+        # Only resume polling for a message this pass actually sent: a crash
+        # between entering the stage and sending would otherwise leave the
+        # stage watching the previous run and advance without the message.
+        if task.get("polling") and self._session_step_sent(task):
             return self._poll_work(task)
         message = str(spec.get("session") or "")
-        result = agent.send(task, message)
+        try:
+            result = agent.send(task, message)
+        except NotImplementedError:
+            return {
+                "ok": False,
+                "status": "failed",
+                "note": "该阶段的 agent 没有配置 send 命令，无法通知会话",
+            }
+        except Exception as exc:
+            return {
+                "ok": False,
+                "status": "failed",
+                "note": f"通知 agent 失败：{type(exc).__name__}: {exc}"[:500],
+            }
         if not result.get("ok"):
             return {
                 "ok": False,
                 "status": "failed",
                 "note": "通知 agent 失败：" + str(result.get("detail") or "")[:500],
             }
+        self.store.add_event(task["id"], "session_step", task["stage"])
         interval = float(spec.get("interval") or getattr(agent, "poll_interval", 15) or 15)
         return {
             "ok": True,
@@ -481,6 +498,12 @@ class Engine:
             "note": "已通知 agent 继续（等待交付）",
             "output": str(result.get("detail") or "")[-4000:],
         }
+
+    def _session_step_sent(self, task: dict) -> bool:
+        """Whether the session-stage message was already sent in this pass."""
+        stage = task["stage"]
+        sent = self.store.session_step_at(task["id"], stage)
+        return sent > 0 and sent >= self.store.stage_changed_at(task["id"], stage)
 
     def _ticket_of(self, task: dict) -> str:
         payload = task.get("payload")
