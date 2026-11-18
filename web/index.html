@@ -3,112 +3,213 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#070a0f">
 <title>Hookboard</title>
 <style>
   :root {
     color-scheme: dark;
-    --bg: #080b10;
-    --bg-2: #0b1017;
-    --panel: #0f1620;
-    --card: #121b26;
-    --card-2: #15202c;
-    --line: #1d2a38;
-    --line-2: #2a3b4d;
-    --text: #e8eef5;
-    --muted: #93a6b8;
-    --dim: #5f7286;
+    --bg: #070a0f;
+    --bg-2: #0a0f16;
+    --panel: #0c121a;
+    --card: #0f1722;
+    --card-2: #131d2b;
+    --line: #1a2533;
+    --line-2: #253647;
+    --text: #e9f1f8;
+    --muted: #9db0c3;
+    --dim: #7b8fa3;
+    --accent: #38bdf8;
+    --accent-2: #818cf8;
     --pending: #94a3b8;
-    --running: #5aa9ff;
-    --waiting: #f5b93f;
-    --done: #37d39b;
-    --failed: #f87171;
-    --radius: 14px;
+    --running: #38bdf8;
+    --waiting: #fbbf24;
+    --done: #34d399;
+    --failed: #fb7185;
+    --radius: 13px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; }
+  body.modal { overflow: hidden; }
   body {
-    background:
-      radial-gradient(1100px 500px at 15% -10%, rgba(90, 169, 255, .10), transparent 60%),
-      radial-gradient(900px 420px at 90% -20%, rgba(245, 185, 63, .06), transparent 55%),
-      var(--bg);
+    background: var(--bg);
     color: var(--text);
     font: 14.5px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
           "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
   [hidden] { display: none !important; }
-  a { color: #7dd3fc; }
+  a { color: #7dd3fc; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Static backdrop. Painted once: a fixed layer that never animates, so
+     scrolling and polling cost nothing. */
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -2; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(56, 189, 248, .045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(56, 189, 248, .045) 1px, transparent 1px);
+    background-size: 48px 48px;
+    -webkit-mask-image: radial-gradient(ellipse 95% 62% at 50% -6%, #000 12%, transparent 72%);
+    mask-image: radial-gradient(ellipse 95% 62% at 50% -6%, #000 12%, transparent 72%);
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(920px 430px at 12% -10%, rgba(56, 189, 248, .13), transparent 62%),
+      radial-gradient(780px 380px at 88% -14%, rgba(129, 140, 248, .10), transparent 60%);
+  }
+
+  ::selection { background: rgba(56, 189, 248, .28); }
+  * { scrollbar-width: thin; scrollbar-color: #22354a transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb {
+    background: #1f3042; border-radius: 8px;
+    border: 3px solid transparent; background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #2b4459; background-clip: padding-box; }
 
   /* ------------------------------------------------------------- top bar */
   header.topbar {
     position: sticky; top: 0; z-index: 30;
     display: flex; align-items: center; gap: 18px;
-    padding: 12px 22px;
-    background: rgba(8, 11, 16, .78);
+    padding: 11px 22px;
+    background: #080d13;
     border-bottom: 1px solid var(--line);
-    backdrop-filter: blur(12px);
   }
-  .brand { display: flex; align-items: center; gap: 9px; }
-  .brand .mark { color: var(--waiting); font-size: 15px; }
-  .brand h1 { margin: 0; font-size: 16px; font-weight: 680; letter-spacing: .02em; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); transition: background .2s; }
-  .dot.on { background: var(--done); box-shadow: 0 0 10px rgba(55, 211, 155, .6); }
-  .dot.off { background: var(--failed); box-shadow: 0 0 10px rgba(248, 113, 113, .6); }
+  header.topbar::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(56, 189, 248, .5),
+                rgba(129, 140, 248, .38), transparent);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .mark {
+    display: grid; place-items: center;
+    width: 24px; height: 24px; border-radius: 7px;
+    font-size: 11px; color: #7dd3fc;
+    background: linear-gradient(160deg, rgba(56, 189, 248, .22), rgba(129, 140, 248, .14));
+    border: 1px solid rgba(56, 189, 248, .32);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .10);
+  }
+  .brand h1 {
+    margin: 0; font-size: 14px; font-weight: 700;
+    letter-spacing: .17em; text-transform: uppercase;
+    background: linear-gradient(92deg, #eaf6ff, #7dd3fc 58%, #818cf8);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--dim); transition: background .2s, box-shadow .2s;
+  }
+  .dot.on { background: var(--done); box-shadow: 0 0 0 3px rgba(52, 211, 153, .12), 0 0 12px rgba(52, 211, 153, .55); }
+  .dot.off { background: var(--failed); box-shadow: 0 0 0 3px rgba(251, 113, 133, .12), 0 0 12px rgba(251, 113, 133, .5); }
 
   #counts { display: flex; gap: 7px; flex-wrap: wrap; margin-left: 6px; }
   .chip {
     display: inline-flex; align-items: center; gap: 7px;
-    font-size: 12px; color: var(--muted);
+    font-size: 12px; color: var(--muted); letter-spacing: .02em;
     border: 1px solid var(--line); border-radius: 999px; padding: 3px 11px;
-    background: rgba(15, 22, 32, .8);
+    background: rgba(13, 20, 29, .75);
   }
-  .chip b { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 650; }
+  .chip b {
+    font-variant-numeric: tabular-nums; font-family: var(--mono);
+    font-size: 12.5px; color: var(--text); font-weight: 600;
+    transition: color .2s ease;
+  }
   .chip i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .9; }
   .chip-pending i { color: var(--pending); } .chip-pending b { color: var(--pending); }
   .chip-running i { color: var(--running); } .chip-running b { color: var(--running); }
   .chip-waiting i { color: var(--waiting); } .chip-waiting b { color: var(--waiting); }
   .chip-done i { color: var(--done); } .chip-done b { color: var(--done); }
+  .chip-failed i { color: var(--failed); } .chip-failed b { color: var(--failed); }
+  .chip.bump b { animation: bump .34s cubic-bezier(.2, .8, .3, 1); }
+  @keyframes bump { 40% { transform: scale(1.22); } }
 
   .bar-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  /* 来源筛选：选项由看板数据里的 task.source 自动生成，新渠道（如 wechat）出现即自动可选 */
+  #source-filter {
+    font: inherit; font-size: 12.5px; color: var(--text);
+    background: #131d29; border: 1px solid var(--line-2);
+    border-radius: 9px; padding: 6px 9px; cursor: pointer;
+  }
+  #source-filter.active { border-color: rgba(56, 189, 248, .55); color: #7dd3fc; }
   button {
     font: inherit; font-size: 13px; cursor: pointer;
-    color: var(--text); background: #16212d; border: 1px solid var(--line-2);
-    border-radius: 10px; padding: 7px 13px;
-    transition: background .15s, border-color .15s, transform .05s;
+    color: var(--text); background: #131d29; border: 1px solid var(--line-2);
+    border-radius: 9px; padding: 7px 13px;
+    transition: background .15s, border-color .15s, box-shadow .15s, transform .06s;
   }
-  button:hover { background: #1b2937; border-color: #365068; }
+  button:hover { background: #192534; border-color: #34506a; }
   button:active { transform: translateY(1px); }
-  button.primary { background: #1d4ed8; border-color: #2f5fea; }
-  button.primary:hover { background: #2657e6; }
+  button:focus-visible { outline: 2px solid rgba(56, 189, 248, .7); outline-offset: 2px; }
+  button.primary {
+    background: linear-gradient(180deg, #2563eb, #1d4ed8);
+    border-color: #3b76f6;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .10) inset, 0 6px 18px rgba(0, 0, 0, .38);
+  }
+  button.primary:hover { background: linear-gradient(180deg, #2f6ff0, #2358e0); }
   button.ghost { background: transparent; }
-  button.danger { color: #fca5a5; border-color: #4b2026; background: #1d1116; }
+  button.danger { color: #fda4af; border-color: #4a2229; background: #1c1013; }
+  button.danger:hover { background: #261318; border-color: #6a2c36; }
   button.small { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
   button:disabled { opacity: .55; cursor: progress; }
 
   /* ---------------------------------------------------------------- board */
   main.board {
-    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px; padding: 18px 22px 48px; align-items: start;
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 14px; padding: 18px 22px 20px; align-items: start;
   }
-  .col { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .col { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+  /* Wide screens: the page itself never scrolls. Every status column is its
+     own scroll container, so the top bar and the column heads stay put while
+     you scroll one lane. Narrow screens keep plain page scrolling. */
+  @media (min-width: 681px) {
+    body { display: flex; flex-direction: column; }
+    main.board { flex: 1 1 auto; min-height: 0; overflow: hidden; align-items: stretch; }
+    .col { min-height: 0; }
+    .cards {
+      flex: 1 1 auto; min-height: 0;
+      overflow-y: auto; overscroll-behavior: contain;
+      padding-right: 2px;
+    }
+    .col > header { position: static; }
+  }
   .col > header {
     position: sticky; top: 57px; z-index: 5;
     display: flex; align-items: center; gap: 8px;
-    padding: 8px 4px;
-    background: linear-gradient(var(--bg) 65%, transparent);
+    padding: 9px 4px 8px;
+    background: linear-gradient(var(--bg) 72%, rgba(7, 10, 15, 0));
   }
-  .col h2 { margin: 0; font-size: 12.5px; font-weight: 680; letter-spacing: .06em; color: var(--muted); }
+  .col > header::after {
+    content: ""; position: absolute; left: 4px; right: 4px; bottom: 0; height: 1px;
+    background: linear-gradient(90deg, var(--line-2), transparent 85%);
+  }
+  .col h2 {
+    margin: 0; font-size: 12px; font-weight: 650;
+    letter-spacing: .12em; color: var(--muted); text-transform: uppercase;
+  }
   .col .n {
     margin-left: auto; font-size: 11.5px; color: var(--dim);
-    font-variant-numeric: tabular-nums;
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
     border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px;
+    background: rgba(13, 20, 29, .6);
   }
-  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); }
+  .pulse { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
   .col-pending .pulse { background: var(--pending); }
-  .col-running .pulse { background: var(--running); animation: pulse 1.6s ease-in-out infinite; }
-  .col-waiting .pulse { background: var(--waiting); }
+  .col-running .pulse { background: var(--running); box-shadow: 0 0 10px rgba(56, 189, 248, .8); animation: pulse 1.7s ease-in-out infinite; }
+  .col-waiting .pulse { background: var(--waiting); box-shadow: 0 0 10px rgba(251, 191, 36, .6); animation: pulse 2.4s ease-in-out infinite; }
   .col-done .pulse { background: var(--done); }
-  @keyframes pulse { 50% { opacity: .35; transform: scale(.85); } }
+  .col-failed .pulse { background: var(--failed); }
+  @keyframes pulse { 50% { opacity: .32; transform: scale(.82); } }
+
+  .cards { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+  .cards:empty::after {
+    content: "暂无任务";
+    display: block; padding: 18px 12px; text-align: center;
+    color: var(--dim); font-size: 12px; letter-spacing: .06em;
+    border: 1px dashed var(--line); border-radius: var(--radius);
+  }
 
   .card {
     position: relative;
@@ -118,43 +219,64 @@
     padding: 12px 13px 12px 15px;
     cursor: pointer;
     overflow-wrap: anywhere;
-    transition: border-color .15s, transform .12s, box-shadow .15s;
+    contain: layout paint;
+    transition: border-color .16s, box-shadow .16s, transform .16s;
   }
   .card::before {
-    content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 2px;
-    border-radius: 2px; background: var(--dim); opacity: .6;
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+    background: var(--dim); opacity: .45;
+    transition: opacity .2s, background .2s;
   }
-  .card:hover { border-color: #2f4558; transform: translateY(-1px); box-shadow: 0 8px 24px rgba(0, 0, 0, .35); }
-  .card:focus-visible { outline: 2px solid #2f5fea; outline-offset: 2px; }
-  .st-running::before { background: var(--running); opacity: 1; }
-  .st-waiting::before { background: var(--waiting); opacity: 1; }
+  .card::after {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .07) 40%, transparent);
+  }
+  .card:hover {
+    border-color: #2f4a60; transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .45), 0 0 0 1px rgba(56, 189, 248, .10);
+  }
+  .card:hover::before { opacity: 1; }
+  .card:focus-visible { outline: 2px solid rgba(56, 189, 248, .8); outline-offset: 2px; }
+  .st-running, .st-waiting { border-color: #244055; }
+  .st-running::before { background: var(--running); opacity: 1; box-shadow: 0 0 10px rgba(56, 189, 248, .85); animation: barPulse 1.9s ease-in-out infinite; }
+  .st-waiting::before { background: var(--waiting); opacity: 1; box-shadow: 0 0 10px rgba(251, 191, 36, .7); }
   .st-done::before { background: var(--done); }
   .st-failed::before, .st-cancelled::before { background: var(--failed); }
-  .col-done .card { opacity: .74; }
+  .col-done .card { opacity: .76; }
   .col-done .card:hover { opacity: 1; }
+  @keyframes barPulse { 50% { opacity: .3; } }
+  /* Only cards that are actually new animate in; reused nodes never replay. */
+  .card.in { animation: cardIn .24s cubic-bezier(.2, .8, .3, 1) both; }
+  @keyframes cardIn { from { opacity: 0; transform: translateY(6px) scale(.995); } }
 
   .card .top { display: flex; align-items: center; gap: 8px; font-size: 11.5px; }
   .src {
-    color: #8fd3ff; background: rgba(18, 60, 86, .55); border: 1px solid rgba(56, 130, 178, .35);
-    border-radius: 6px; padding: 1px 7px; letter-spacing: .02em;
+    color: #8fd3ff; background: rgba(18, 60, 86, .5);
+    border: 1px solid rgba(56, 130, 178, .32);
+    border-radius: 6px; padding: 1px 7px; letter-spacing: .04em;
+    text-transform: uppercase; font-size: 11.5px;
   }
   .ext {
     color: var(--dim); margin-left: auto; overflow: hidden; text-overflow: ellipsis;
-    white-space: nowrap; max-width: 58%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 10.5px;
+    white-space: nowrap; max-width: 58%;
+    font-family: var(--mono); font-size: 11px;
   }
-  .card h3 { margin: 8px 0 7px; font-size: 14px; font-weight: 600; line-height: 1.45; }
-  .meta { display: flex; gap: 7px; align-items: center; font-size: 11.5px; color: var(--dim); }
+  .card h3 { margin: 8px 0 8px; font-size: 15px; font-weight: 600; line-height: 1.45; }
+  .meta { display: flex; gap: 7px; align-items: center; font-size: 12px; color: var(--dim); }
+  .meta .rel { font-variant-numeric: tabular-nums; }
   .stage {
-    color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
-    background: rgba(255, 255, 255, .03); border: 1px solid var(--line); border-radius: 6px; padding: 0 6px;
+    color: var(--muted); font-family: var(--mono); font-size: 11px;
+    letter-spacing: .04em; text-transform: uppercase;
+    background: rgba(255, 255, 255, .03); border: 1px solid var(--line);
+    border-radius: 5px; padding: 0 6px;
   }
   .badge-live {
-    margin-left: auto; font-size: 10.5px; color: var(--running);
-    border: 1px solid rgba(90, 169, 255, .35); border-radius: 999px; padding: 0 7px;
+    margin-left: auto; font-size: 11px; color: var(--running);
+    border: 1px solid rgba(56, 189, 248, .35); border-radius: 999px; padding: 0 7px;
+    background: rgba(56, 189, 248, .06);
   }
   .card .note {
-    margin: 7px 0 0; font-size: 12.5px; color: var(--muted);
+    margin: 8px 0 0; font-size: 12.5px; color: var(--muted);
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   }
 
@@ -164,69 +286,87 @@
   .approval textarea {
     width: 100%; margin-top: 8px; padding: 7px 9px; resize: vertical;
     font: inherit; font-size: 12.5px; color: var(--text);
-    background: #0b1118; border: 1px solid var(--line-2); border-radius: 8px;
+    background: #090f16; border: 1px solid var(--line-2); border-radius: 8px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  textarea:focus, input:focus, select:focus {
+    outline: none; border-color: rgba(56, 189, 248, .55);
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, .10);
   }
   button.send { width: 100%; margin-top: 6px; }
   .approval .q.done { color: var(--dim); }
-  .empty {
-    border: 1px dashed var(--line); border-radius: var(--radius);
-    color: var(--dim); font-size: 12px; padding: 16px; text-align: center;
-  }
 
   /* --------------------------------------------------------------- drawer */
-  .scrim {
-    position: fixed; inset: 0; z-index: 40;
-    background: rgba(4, 6, 9, .55); backdrop-filter: blur(2px);
-  }
+  .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(4, 6, 9, .62); }
   .drawer {
     position: fixed; top: 0; right: 0; bottom: 0; z-index: 50;
     width: min(620px, 100vw);
     background: var(--panel);
     border-left: 1px solid var(--line);
-    box-shadow: -24px 0 60px rgba(0, 0, 0, .5);
+    box-shadow: -24px 0 60px rgba(0, 0, 0, .55);
     display: flex; flex-direction: column;
-    animation: slide .18s ease;
+    /* The panel is its own scroll context; without this its content grows past
+       the fixed box and the wheel scrolls the page behind it. */
+    overflow: hidden;
+    animation: slide .2s cubic-bezier(.2, .8, .3, 1);
   }
-  @keyframes slide { from { transform: translateX(24px); opacity: .4; } }
+  @keyframes slide { from { transform: translateX(26px); opacity: .5; } }
   .drawer header {
+    flex: none;
     display: flex; align-items: flex-start; gap: 12px;
-    padding: 16px 18px 12px; border-bottom: 1px solid var(--line);
+    padding: 16px 18px 13px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(56, 189, 248, .04), transparent);
   }
-  .drawer header h2 { margin: 6px 0 0; font-size: 16px; line-height: 1.45; }
+  .drawer header > div { flex: 1 1 auto; min-width: 0; }
+  .drawer header h2 { margin: 7px 0 0; font-size: 17px; line-height: 1.45; overflow-wrap: anywhere; }
   .drawer header .badges { display: flex; gap: 6px; flex-wrap: wrap; }
   .drawer .close { margin-left: auto; flex: none; }
-  .drawer .body { overflow: auto; padding: 16px 18px 28px; }
+  /* flex + min-height:0 is what makes this a scroll container instead of a box
+     that pushes its overflow onto the document scroller. */
+  .drawer .body {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overscroll-behavior: contain;
+    padding: 16px 18px 28px;
+  }
   .drawer .foot {
+    flex: none;
     padding: 12px 18px; border-top: 1px solid var(--line);
     display: flex; gap: 8px; justify-content: flex-end; background: var(--bg-2);
   }
   .tag {
-    font-size: 11px; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--line-2);
-    color: var(--muted); background: rgba(255, 255, 255, .02);
+    font-size: 11.5px; border-radius: 999px; padding: 2px 9px; border: 1px solid var(--line-2);
+    color: var(--muted); background: rgba(255, 255, 255, .02); letter-spacing: .03em;
   }
-  .tag.waiting { color: var(--waiting); border-color: rgba(245, 185, 63, .4); }
-  .tag.running { color: var(--running); border-color: rgba(90, 169, 255, .4); }
-  .tag.done { color: var(--done); border-color: rgba(55, 211, 155, .35); }
-  .tag.failed, .tag.cancelled { color: var(--failed); border-color: rgba(248, 113, 113, .35); }
+  .tag.waiting { color: var(--waiting); border-color: rgba(251, 191, 36, .4); }
+  .tag.running { color: var(--running); border-color: rgba(56, 189, 248, .4); }
+  .tag.done { color: var(--done); border-color: rgba(52, 211, 153, .35); }
+  .tag.failed, .tag.cancelled { color: var(--failed); border-color: rgba(251, 113, 133, .35); }
 
   .section { margin-top: 20px; }
   .section > h3 {
-    margin: 0 0 8px; font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase;
+    margin: 0 0 9px; font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase;
     color: var(--dim); font-weight: 650;
   }
+  .doc {
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    font-size: 13px; line-height: 1.72; color: #cddbea;
+    background: rgba(255, 255, 255, .02); border: 1px solid var(--line);
+    border-radius: 10px; padding: 11px 13px; max-height: 30vh; overflow: auto;
+  }
+  .doc strong { color: var(--text); font-weight: 650; }
   .facts { display: grid; grid-template-columns: 96px 1fr; gap: 5px 12px; font-size: 12.5px; }
   .facts dt { color: var(--dim); }
   .facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
-  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; }
+  .mono { font-family: var(--mono); font-size: 12px; }
 
   .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .timeline li {
     display: grid; grid-template-columns: 62px 128px 1fr; gap: 10px;
-    padding: 5px 0; border-bottom: 1px solid rgba(29, 42, 56, .6);
+    padding: 5px 0; border-bottom: 1px solid rgba(26, 37, 51, .7);
     font-size: 12px; color: var(--muted);
   }
-  .timeline time { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 11px; }
-  .timeline .kind { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #9fd4ff; }
+  .timeline time { color: var(--dim); font-variant-numeric: tabular-nums; font-size: 11.5px; font-family: var(--mono); }
+  .timeline .kind { font-family: var(--mono); font-size: 11.5px; color: #9fd4ff; }
   .timeline .kind.err { color: var(--failed); }
   .timeline .kind.ok { color: var(--done); }
 
@@ -238,8 +378,8 @@
   .run .head .ok { color: var(--done); } .run .head .bad { color: var(--failed); }
   pre {
     white-space: pre-wrap; word-break: break-all;
-    font: 11.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
-    background: #0a0f15; border: 1px solid var(--line); border-radius: 10px;
+    font: 12px/1.6 var(--mono);
+    background: #080d13; border: 1px solid var(--line); border-radius: 10px;
     padding: 10px; max-height: 46vh; overflow: auto; margin: 8px 0 0;
   }
   details summary { cursor: pointer; color: #7dd3fc; font-size: 12px; }
@@ -248,111 +388,76 @@
   .composer textarea, .drawer textarea {
     width: 100%; padding: 9px 10px; resize: vertical;
     font: inherit; font-size: 13px; color: var(--text);
-    background: #0b1118; border: 1px solid var(--line-2); border-radius: 10px;
+    background: #090f16; border: 1px solid var(--line-2); border-radius: 10px;
   }
-  .hint { color: var(--dim); font-size: 11.5px; margin: 6px 0 0; }
+  .hint { color: var(--dim); font-size: 12px; margin: 6px 0 0; }
 
   /* -------------------------------------------------------------- dialogs */
   dialog {
     border: 1px solid var(--line-2); border-radius: 16px; padding: 0;
     background: var(--panel); color: var(--text); width: min(520px, calc(100vw - 32px));
-    box-shadow: 0 30px 80px rgba(0, 0, 0, .6);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, .65), 0 0 0 1px rgba(56, 189, 248, .08);
   }
-  dialog::backdrop { background: rgba(4, 6, 9, .6); backdrop-filter: blur(2px); }
+  dialog::backdrop { background: rgba(4, 6, 9, .66); }
   dialog form { padding: 18px; }
-  dialog h2 { margin: 0 0 10px; font-size: 15px; }
+  dialog h2 { margin: 0 0 10px; font-size: 16px; letter-spacing: .02em; }
   dialog label { display: block; font-size: 12px; color: var(--muted); margin: 12px 0 5px; }
   dialog input[type="password"], dialog select {
     width: 100%; padding: 8px 10px; border-radius: 9px; font: inherit; font-size: 13px;
-    background: #0b1118; color: var(--text); border: 1px solid var(--line-2);
+    background: #090f16; color: var(--text); border: 1px solid var(--line-2);
   }
   .dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
   /* ---------------------------------------------------------------- toast */
   #toast {
-    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 80;
-    background: #14202c; color: var(--text); border: 1px solid var(--line-2);
+    position: fixed; left: 50%; bottom: 24px; z-index: 80;
+    transform: translate(-50%, 8px);
+    background: #101a24; color: var(--text); border: 1px solid var(--line-2);
     border-radius: 11px; padding: 9px 16px; font-size: 13px; max-width: 90vw;
-    opacity: 0; pointer-events: none; transition: opacity .18s ease;
-    box-shadow: 0 14px 40px rgba(0, 0, 0, .5);
+    opacity: 0; pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, .55), 0 0 0 1px rgba(56, 189, 248, .06);
   }
-  #toast.show { opacity: 1; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
   #toast.error { border-color: #7f1d1d; background: #2a1114; color: #fecaca; }
 
-  /* ------------------------------------------------------------ polish */
-  body::before {
-    content: ""; position: fixed; inset: -40%; z-index: -1; pointer-events: none;
-    background-image:
-      linear-gradient(rgba(90, 169, 255, .045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(90, 169, 255, .045) 1px, transparent 1px);
-    background-size: 44px 44px;
-    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 20%, transparent 75%);
-    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 20%, transparent 75%);
-    animation: drift 40s linear infinite;
-  }
-  @keyframes drift { to { transform: translate3d(44px, 44px, 0); } }
-
-  .brand h1 {
-    background: linear-gradient(92deg, #eaf4ff, #7dd3fc 55%, #5aa9ff);
-    -webkit-background-clip: text; background-clip: text; color: transparent;
-  }
-  .brand .mark { text-shadow: 0 0 14px rgba(245, 185, 63, .65); }
-
+  /* ------------------------------------------------------------ progress */
   #progress {
     position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 60;
-    opacity: 0; transition: opacity .2s ease; pointer-events: none;
+    opacity: 0; transition: opacity .2s ease; pointer-events: none; overflow: hidden;
   }
   #progress.show { opacity: 1; }
   #progress::after {
-    content: ""; display: block; height: 100%; width: 40%;
-    background: linear-gradient(90deg, transparent, #5aa9ff, #7dd3fc, transparent);
-    box-shadow: 0 0 12px rgba(90, 169, 255, .8);
+    content: ""; display: block; height: 100%; width: 38%;
+    background: linear-gradient(90deg, transparent, var(--accent), #a5b4fc, transparent);
+    box-shadow: 0 0 12px rgba(56, 189, 248, .8);
     animation: sweep 1.1s cubic-bezier(.4, 0, .2, 1) infinite;
   }
-  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(320%); } }
 
-  /* Skeletons: the first paint never shows an empty board. */
+  /* Skeletons: first paint is never an empty board. Static gradient, no
+     background-position animation (that repaints at 60fps). */
   .skel {
-    height: 96px; border-radius: var(--radius); border: 1px solid var(--line);
-    background: linear-gradient(100deg, #0e1620 30%, #16222f 45%, #0e1620 60%);
-    background-size: 220% 100%; animation: shimmer 1.3s ease-in-out infinite;
+    height: 92px; border-radius: var(--radius); border: 1px solid var(--line);
+    background: linear-gradient(100deg, #0c131b 20%, #121d29 50%, #0c131b 80%);
+    animation: skelFade 1.4s ease-in-out infinite;
   }
-  @keyframes shimmer { to { background-position: -120% 0; } }
-
-  .card { animation: cardIn .22s cubic-bezier(.2, .7, .3, 1) both; }
-  @keyframes cardIn { from { opacity: 0; transform: translateY(6px) scale(.995); } }
-  .card:hover {
-    border-color: #35617f;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, .45), 0 0 0 1px rgba(90, 169, 255, .12);
-  }
-  .col-running .card::after {
-    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-    background: linear-gradient(115deg, transparent 40%, rgba(90, 169, 255, .06) 50%, transparent 60%);
-    background-size: 250% 100%; animation: sheen 3.4s ease-in-out infinite;
-  }
-  @keyframes sheen { from { background-position: 130% 0; } to { background-position: -60% 0; } }
-
-  .chip b { transition: color .2s ease; }
-  .chip.bump b { animation: bump .32s ease; }
-  @keyframes bump { 40% { transform: scale(1.22); } }
-
-  .scrim { animation: fadeIn .16s ease; }
-  @keyframes fadeIn { from { opacity: 0; } }
-  .drawer { animation: slide .22s cubic-bezier(.2, .7, .3, 1); }
-  #toast { transform: translate(-50%, 8px); }
-  #toast.show { transform: translate(-50%, 0); transition: opacity .18s ease, transform .18s ease; }
+  .skel:nth-child(2) { height: 76px; }
+  @keyframes skelFade { 50% { opacity: .55; } }
 
   @media (prefers-reduced-motion: reduce) {
-    body::before, .card, .col-running .card::after, .skel { animation: none !important; }
+    *, *::before, *::after { animation: none !important; transition: none !important; }
   }
 
   @media (max-width: 980px) {
     main.board { grid-template-columns: 1fr 1fr; gap: 12px; padding: 14px; }
   }
   @media (max-width: 680px) {
-    main.board { grid-template-columns: 1fr; gap: 20px; }
-    header.topbar { padding: 10px 14px; flex-wrap: wrap; gap: 10px; }
-    .col > header { top: 52px; }
+    main.board { grid-template-columns: 1fr; gap: 18px; }
+    /* Two stacked rows would overlap a sticky header pinned at a fixed top. */
+    header.topbar { position: static; padding: 10px 14px; flex-wrap: wrap; gap: 10px; }
+    #counts { order: 3; width: 100%; margin-left: 0; }
+    .col > header { position: static; padding-top: 4px; }
     .timeline li { grid-template-columns: 52px 1fr; }
     .timeline .detail { grid-column: 1 / -1; }
   }
@@ -368,6 +473,7 @@
   </div>
   <nav id="counts"></nav>
   <div class="bar-actions">
+    <select id="source-filter" title="按来源筛选" aria-label="按来源筛选"></select>
     <button id="new-task" class="primary">＋ 新任务</button>
     <button id="settings" class="ghost" title="API Token 设置">⚙</button>
   </div>
@@ -416,7 +522,8 @@
     ["pending", "待处理"],
     ["running", "进行中"],
     ["waiting", "等你审批"],
-    ["done", "已完成"]
+    ["done", "已完成"],
+    ["failed", "失败"]
   ];
   var board = document.getElementById("board");
   var counts = document.getElementById("counts");
@@ -432,6 +539,10 @@
   var openTaskId = null;
   var detailHtml = "";
   var projects = [];
+  var lastData = null;
+  // 来源筛选：'' = 全部；选项从看板数据里的 task.source 自动生成，
+  // 所以今天有 feishu/tapd，将来出现 wechat 也无需改代码。
+  var sourceFilter = localStorage.getItem("hookboard_source") || "";
 
   function esc(value) {
     return String(value == null ? "" : value)
@@ -516,6 +627,9 @@
       "</div>";
   }
 
+  // `elapsed` is deliberately NOT in this markup: it changes every second on
+  // a fresh task, which used to force a full column re-render each poll.
+  // It lives in <time data-ts> and is patched as text in tickTimes().
   function cardHtml(task) {
     var note = task.note ? '<p class="note">' + esc(task.note) + "</p>" : "";
     var live = task.session ? '<span class="badge-live" title="' + esc(task.session) + '">已派单</span>' : "";
@@ -523,31 +637,33 @@
       '<div class="top"><span class="src">' + esc(task.source) + "</span>" +
       '<span class="ext" title="' + esc(task.external_id) + '">' + esc(task.external_id) + "</span></div>" +
       "<h3>" + esc(task.title) + "</h3>" +
-      '<div class="meta"><span class="stage">' + esc(task.stage) + "</span><span>·</span><span>" +
-      elapsed(task.created_at) + "</span>" + live + "</div>" +
+      '<div class="meta"><span class="stage">' + esc(task.stage) + "</span><span>·</span>" +
+      '<time class="rel" data-ts="' + num(task.created_at) + '">' + elapsed(task.created_at) + "</time>" +
+      live + "</div>" +
       note +
       approvalHtml(task) +
       "</article>";
   }
 
-  function columnHtml(key, title, tasks) {
-    var body = tasks.length ? tasks.map(cardHtml).join("") : '<div class="empty">暂无</div>';
-    return '<header><span class="pulse"></span><h2>' + title + "</h2>" +
-      '<span class="n">' + tasks.length + "</span></header>" + body;
-  }
-
-  var colNodes = {};
-  var colCache = {};
+  var colNodes = {};      // key -> <section>
+  var cardNodes = {};     // taskId -> {el, html}
+  var chipNums = {};      // key -> <b>
   var lastTotals = {};
   var columnsReady = false;
 
   function ensureColumns() {
     if (columnsReady) return;
     board.innerHTML = COLUMNS.map(function (pair) {
-      return '<section class="col col-' + pair[0] + '"></section>';
+      return '<section class="col col-' + pair[0] + '">' +
+        '<header><span class="pulse"></span><h2>' + pair[1] + "</h2>" +
+        '<span class="n">0</span></header><div class="cards"></div></section>';
+    }).join("");
+    counts.innerHTML = COLUMNS.map(function (pair) {
+      return '<span class="chip chip-' + pair[0] + '"><i></i><b>0</b>' + pair[1] + "</span>";
     }).join("");
     COLUMNS.forEach(function (pair) {
       colNodes[pair[0]] = board.querySelector(".col-" + pair[0]);
+      chipNums[pair[0]] = counts.querySelector(".chip-" + pair[0] + " b");
     });
     columnsReady = true;
   }
@@ -556,44 +672,115 @@
     board.innerHTML = COLUMNS.map(function (pair) {
       return '<section class="col col-' + pair[0] + '">' +
         '<header><span class="pulse"></span><h2>' + pair[1] + '</h2><span class="n">·</span></header>' +
-        '<div class="skel"></div><div class="skel"></div></section>';
+        '<div class="cards"><div class="skel"></div><div class="skel"></div></div></section>';
     }).join("");
   }
+
+  function tickTimes(root) {
+    var nodes = (root || board).querySelectorAll("time.rel");
+    for (var i = 0; i < nodes.length; i += 1) {
+      var next = elapsed(nodes[i].dataset.ts);
+      if (nodes[i].textContent !== next) nodes[i].textContent = next;
+    }
+  }
+
+  function renderColumn(key, tasks) {
+    var col = colNodes[key];
+    col.querySelector(".n").textContent = String(tasks.length);
+    var holder = col.querySelector(".cards");
+    var desired = [];
+    var seen = {};
+
+    tasks.forEach(function (task) {
+      var id = String(task.id);
+      if (seen[id]) return;
+      seen[id] = 1;
+      var html = cardHtml(task);
+      var entry = cardNodes[id];
+      if (!entry || entry.html !== html) {
+        var wrap = document.createElement("div");
+        wrap.innerHTML = html;
+        var el = wrap.firstElementChild;
+        el.classList.add("in");
+        el.addEventListener("animationend", function () { el.classList.remove("in"); }, { once: true });
+        if (entry && entry.el && entry.el.parentNode) entry.el.replaceWith(el);
+        entry = { el: el, html: html };
+        cardNodes[id] = entry;
+      }
+      desired.push(entry.el);
+    });
+
+    // Drop cards that left this column (moved elsewhere or gone).
+    var keep = new Set(desired);
+    Array.prototype.slice.call(holder.children).forEach(function (node) {
+      if (!keep.has(node)) node.remove();
+    });
+    // Reorder only where needed; untouched cards keep their DOM and state.
+    var cursor = holder.firstElementChild;
+    for (var i = 0; i < desired.length; i += 1) {
+      var el = desired[i];
+      if (el === cursor) { cursor = cursor.nextElementSibling; }
+      else { holder.insertBefore(el, cursor); }
+    }
+  }
+
+  var sourceFilterEl = document.getElementById("source-filter");
+  function filteredTasks(column) {
+    var tasks = (column || {}).tasks || [];
+    if (!sourceFilter) return tasks;
+    return tasks.filter(function (task) { return String(task.source) === sourceFilter; });
+  }
+
+  function syncSourceOptions(data) {
+    var seen = {};
+    (data.columns || []).forEach(function (column) {
+      (column.tasks || []).forEach(function (task) {
+        if (task.source) seen[String(task.source)] = 1;
+      });
+    });
+    if (sourceFilter) seen[sourceFilter] = 1;   // 选中的来源即使当前无任务也留在选项里
+    var names = Object.keys(seen).sort();
+    var html = '<option value="">全部来源</option>' + names.map(function (name) {
+      return '<option value="' + esc(name) + '">' + esc(name) + "</option>";
+    }).join("");
+    if (sourceFilterEl.dataset.html !== html) {
+      sourceFilterEl.innerHTML = html;
+      sourceFilterEl.dataset.html = html;
+    }
+    sourceFilterEl.value = sourceFilter;
+    sourceFilterEl.classList.toggle("active", !!sourceFilter);
+  }
+
+  sourceFilterEl.addEventListener("change", function () {
+    sourceFilter = sourceFilterEl.value;
+    localStorage.setItem("hookboard_source", sourceFilter);
+    sourceFilterEl.classList.toggle("active", !!sourceFilter);
+    lastTotals = {};   // 换筛选口径后不拿旧数字做 bump 比较
+    if (lastData) { render(lastData); lastJson = ""; }
+  });
 
   function render(data) {
     var byKey = {};
     (data.columns || []).forEach(function (column) { byKey[column.key] = column; });
     ensureColumns();
-    // Only the column whose markup changed is re-rendered, so a 3s poll no
-    // longer rewrites the whole board (flicker, lost hover, replaying anims).
     COLUMNS.forEach(function (pair) {
-      var column = byKey[pair[0]] || { tasks: [] };
-      var html = columnHtml(pair[0], pair[1], column.tasks || []);
-      if (colCache[pair[0]] !== html) {
-        colNodes[pair[0]].innerHTML = html;
-        colCache[pair[0]] = html;
-      }
+      renderColumn(pair[0], filteredTasks(byKey[pair[0]]));
     });
 
-    var totals = data.counts || {};
-    var countsHtml = COLUMNS.map(function (pair) {
-      return '<span class="chip chip-' + pair[0] + '"><i></i><b>' + num(totals[pair[0]]) +
-        "</b>" + pair[1] + "</span>";
-    }).join("");
-    if (counts.innerHTML !== countsHtml) {
-      counts.innerHTML = countsHtml;
-      COLUMNS.forEach(function (pair) {
-        var value = num(totals[pair[0]]);
+    // 角标一律按实际渲染的卡片数算（含筛选），保证角标与列内卡片永不分叉
+    COLUMNS.forEach(function (pair) {
+      var value = filteredTasks(byKey[pair[0]]).length;
+      var el = chipNums[pair[0]];
+      if (el && el.textContent !== String(value)) {
+        el.textContent = String(value);
         if (lastTotals[pair[0]] !== undefined && lastTotals[pair[0]] !== value) {
-          var chip = counts.querySelector(".chip-" + pair[0]);
-          if (chip) {
-            chip.classList.add("bump");
-            setTimeout(function () { chip.classList.remove("bump"); }, 420);
-          }
+          var chip = el.parentNode;
+          chip.classList.add("bump");
+          setTimeout(function () { chip.classList.remove("bump"); }, 420);
         }
-      });
-    }
-    COLUMNS.forEach(function (pair) { lastTotals[pair[0]] = num(totals[pair[0]]); });
+      }
+      lastTotals[pair[0]] = value;
+    });
 
     if (Array.isArray(data.projects) && data.projects.join() !== projects.join()) {
       projects = data.projects;
@@ -624,13 +811,18 @@
   }
 
   async function refresh() {
-    if (isTyping()) return;
+    if (document.hidden || isTyping()) return;
     busy(true);
     try {
       var response = await fetch("/api/board", { cache: "no-store" });
       var data = await response.json();
-      var encoded = JSON.stringify(data);
+      lastData = data;
+      syncSourceOptions(data);
+      // `generated_at` changes on every request; comparing it meant a full
+      // render every 3s no matter what. Only the board payload matters.
+      var encoded = JSON.stringify([data.columns, data.counts, data.projects, sourceFilter]);
       if (encoded !== lastJson) { render(data); lastJson = encoded; }
+      tickTimes(board);
       liveDot.className = "dot on";
       if (openTaskId && drawer.hidden === false) refreshDetail(openTaskId);
     } catch (err) {
@@ -660,15 +852,96 @@
     }).join("") + "</dl>";
   }
 
-  function eventsHtml(events) {
-    if (!events || !events.length) return '<p class="hint">暂无事件</p>';
-    return '<ul class="timeline">' + events.slice().reverse().map(function (event) {
-      var kind = String(event.kind || "");
-      var cls = /error|fail/.test(kind) ? " err" : (/done|approved|message$/.test(kind) ? " ok" : "");
-      return "<li><time>" + esc(clock(event.ts).replace(/^.*?\s/, "")) + "</time>" +
-        '<span class="kind' + cls + '">' + esc(kind) + "</span>" +
-        '<span class="detail">' + esc(event.detail || "") + "</span></li>";
-    }).join("") + "</ul>";
+  var KIND_LABEL = {
+    created: "创建", approval_open: "发起审批", approved: "审批通过",
+    rejected: "审批打回", done: "任务完成", failed: "失败",
+    merged: "并入原任务", message: "发送指令", message_error: "指令发送失败",
+    requeue: "重新入队", retry: "重试", cancelled: "取消",
+    notify_error: "通知失败", session_step: "继续会话"
+  };
+
+  // Ticket bodies and agent reports are light markdown; render bold only.
+  function mdInline(text) {
+    return esc(text).replace(/\*\*([^*\n]{1,80})\*\*/g, "<strong>$1</strong>");
+  }
+
+  // What the agent actually delivered: the last successful work/release run
+  // that reads like a report. Async adapters also log their own JSON
+  // {"threadId":...} as a work run; that is metadata, not a delivery.
+  function deliveryRun(runs) {
+    var best = null;
+    var bestLen = 0;
+    (runs || []).forEach(function (run) {
+      var out = String(run.output || "");
+      if (!run.ok || out.trim().length < 40) return;
+      if (/^\s*\{/.test(out)) return;
+      if (["work", "release", "finish"].indexOf(run.stage) < 0) return;
+      // Longest report wins: `finish` is the ticket callback ("-> resolved;
+      // comment posted"), the work run is what the agent actually did.
+      if (out.length >= bestLen) { best = run; bestLen = out.length; }
+    });
+    return best;
+  }
+
+  function contextHtml(task) {
+    var text = String(task.context || "").trim();
+    if (!text) return "";
+    return '<div class="section"><h3>需求详情</h3><div class="doc">' + mdInline(text) + "</div></div>";
+  }
+
+  function deliveryHtml(detail) {
+    var run = deliveryRun(detail.runs);
+    if (!run) return "";
+    var seconds = Math.max(0, Math.round((run.finished_at || 0) - (run.started_at || 0)));
+    return '<div class="section"><h3>交付结果 · ' + esc(run.stage) +
+      (seconds ? " · " + seconds + "s" : "") + '</h3><div class="doc">' +
+      mdInline(String(run.output || "")) + "</div></div>";
+  }
+
+  function approvalsHtml(detail) {
+    var list = detail.approvals || [];
+    if (!list.length) return "";
+    var rows = list.map(function (ap) {
+      var state = ap.status === "open" ? "待处理"
+        : (ap.status === "superseded" ? "已作废"
+        : (Number(ap.answer_index) === 1 ? "打回" : "通过"));
+      var answer = String(ap.answer_text || "").trim();
+      if (answer === "通过" || answer === "打回") answer = "";
+      var who = String(ap.by || "");
+      if (who.indexOf("feishu:") === 0) who = "飞书 …" + who.slice(-6);
+      return "<li><time>" + esc(clock(ap.decided_at || ap.created_at).replace(/^.*?\s/, "")) + "</time>" +
+        '<span class="kind">' + esc(ap.stage) + "</span>" +
+        '<span class="detail">' + esc(state) +
+        (answer ? " · " + esc(answer) : "") +
+        (who && ap.status !== "open" ? " · " + esc(who) : "") + "</span></li>";
+    }).join("");
+    return '<div class="section"><h3>审批记录</h3><ul class="timeline">' + rows + "</ul></div>";
+  }
+
+  // Stage ticks are pipeline plumbing, not history: the engine used to log one
+  // per poll (a task could carry 100+ identical rows). Runs already show the
+  // stage, so the process list keeps only things that happened to the task.
+  function processHtml(events) {
+    var rows = (events || []).filter(function (event) { return event.kind !== "stage"; });
+    if (!rows.length) return "";
+    return '<div class="section"><h3>过程</h3><ul class="timeline">' +
+      rows.slice().reverse().map(function (event) {
+        var kind = String(event.kind || "");
+        var cls = /error|fail/.test(kind) ? " err" : (/done|approved/.test(kind) ? " ok" : "");
+        return "<li><time>" + esc(clock(event.ts).replace(/^.*?\s/, "")) + "</time>" +
+          '<span class="kind' + cls + '">' + esc(KIND_LABEL[kind] || kind) + "</span>" +
+          '<span class="detail">' + esc(event.detail || "") + "</span></li>";
+      }).join("") + "</ul></div>";
+  }
+
+  function rawHtml(task, events) {
+    var lines = (events || []).slice(-300).map(function (event) {
+      return clock(event.ts) + "  " + event.kind + "  " + (event.detail || "");
+    }).join("\n");
+    return '<details><summary>报文 payload</summary><pre>' +
+      esc(JSON.stringify(task.payload || {}, null, 2)) + "</pre></details>" +
+      '<details><summary>原始事件 ' + (events || []).length + " 条</summary><pre>" +
+      esc(lines) + "</pre></details>";
   }
 
   function runsHtml(runs) {
@@ -721,12 +994,14 @@
       '<div class="body">' +
       '<div class="section"><h3>概览</h3>' + factsHtml(task) +
       (task.note ? '<p class="hint" style="margin-top:10px">' + esc(task.note) + "</p>" : "") + "</div>" +
+      contextHtml(task) +
+      deliveryHtml(detail) +
       approvalDetailHtml(detail) +
       messageBoxHtml(task) +
-      '<div class="section"><h3>事件</h3>' + eventsHtml(detail.events) + "</div>" +
+      approvalsHtml(detail) +
       '<div class="section"><h3>运行记录</h3>' + runsHtml(detail.runs) + "</div>" +
-      '<div class="section"><h3>原始报文</h3><details><summary>展开 payload</summary><pre>' +
-      esc(JSON.stringify(task.payload || {}, null, 2)) + "</pre></details></div>" +
+      processHtml(detail.events) +
+      '<div class="section"><h3>原始数据</h3>' + rawHtml(task, detail.events) + "</div>" +
       "</div>" +
       '<div class="foot">' +
       (task.status === "failed" ? '<button class="small primary" data-retry="1">重试</button>' : "") +
@@ -767,6 +1042,7 @@
     detailHtml = "";
     drawer.hidden = false;
     scrim.hidden = false;
+    document.body.classList.add("modal");
     drawer.innerHTML = '<div class="body"><p class="hint">加载中…</p></div>';
     refreshDetail(openTaskId);
   }
@@ -776,6 +1052,7 @@
     detailHtml = "";
     drawer.hidden = true;
     scrim.hidden = true;
+    document.body.classList.remove("modal");
     drawer.innerHTML = "";
   }
   scrim.addEventListener("click", closeDrawer);
@@ -939,6 +1216,10 @@
       submit.disabled = false;
       submit.textContent = "创建任务";
     }
+  });
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) { lastJson = ""; refresh(); }
   });
 
   skeleton();
