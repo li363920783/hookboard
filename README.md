@@ -309,6 +309,16 @@ agent session, the new task is closed as merged, and a finished task is reopened
 session — no second thread with no memory of the first. A ticket still parked at a gate with no
 session yet just gets the change folded into its note, so one dispatch covers both.
 
+**Session stages.** A step can be a message to the existing session instead of a command:
+
+```json
+"steps": {"release": {"session": "复核已通过，请现在发版上线…", "interval": 15}}
+```
+
+The engine sends that message into the task's session and polls it like the work stage, so the
+agent that wrote the code (branch, build numbers, changed services) does the deploy without
+re-researching. A task with no session fails the step instead of starting a new run.
+
 **Stuck tasks.** A task left in `running` by a restarted or killed service is recovered at startup
 and once a minute. With a session it resumes polling instead of starting a second run (no duplicate
 work); without one it goes back to the queue. The cutoff is `engine.stale_after` seconds, defaulting

@@ -497,6 +497,47 @@ class DigestTestCase(unittest.TestCase):
         found = self.store.find_ticket_task("tapd", "428", 999)
         self.assertEqual(found["id"], task["id"])
 
+    def test_a_session_step_continues_the_existing_session(self):
+        # Release: after review the agent still holds the branch/build context,
+        # so the stage messages the same session and polls it instead of
+        # starting a fresh run.
+        cfg = Config(stages=["work", "review", "release", "finish"], approve_at=["review"])
+        cfg.projects = {
+            "tapd": {"steps": {"release": {"session": "复核已通过，请发版", "interval": 0.01}}}
+        }
+        engine = Engine(self.store, cfg, agent=self.agent, notifiers={})
+        task, _ = self.store.create_task(
+            source="tapd", kind="bug", external_id="1", title="单据",
+            stage="release", project="tapd",
+        )
+        self.store.update_task(task["id"], where_status="pending", status="running", session="t-1")
+
+        engine.process(self.store.get_task(task["id"]))
+        self.assertIn("复核已通过，请发版", self.agent.messages[-1])
+        waiting = self.store.get_task(task["id"])
+        self.assertEqual(waiting["status"], "pending")
+        self.assertEqual(waiting["stage"], "release")
+        self.assertEqual(waiting["polling"], 1)
+
+        self.store.update_task(task["id"], where_status="pending", status="running")
+        engine.process(self.store.get_task(task["id"]))
+        done = self.store.get_task(task["id"])
+        self.assertEqual(done["stage"], "finish")
+
+    def test_a_session_step_without_a_session_fails(self):
+        cfg = Config(stages=["work", "release", "finish"], approve_at=[])
+        cfg.projects = {"tapd": {"steps": {"release": {"session": "发版"}}}}
+        engine = Engine(self.store, cfg, agent=self.agent, notifiers={})
+        task, _ = self.store.create_task(
+            source="tapd", kind="bug", external_id="1", title="单据",
+            stage="release", project="tapd",
+        )
+        self.store.update_task(task["id"], where_status="pending", status="running")
+        engine.process(self.store.get_task(task["id"]))
+        failed = self.store.get_task(task["id"])
+        self.assertEqual(failed["status"], "failed")
+        self.assertIn("没有会话", failed["note"])
+
     def test_long_text_keeps_lines_and_marks_truncation(self):
         from hub.engine import long_text
 

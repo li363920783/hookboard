@@ -229,11 +229,14 @@ class Engine:
             # the ticket system, ...).  Gate stages never reach here: the
             # approval branch above returns first.
             step = (self.project_spec(task).get("steps") or {}).get(stage)
-            handler = (
-                (lambda t, spec=step: self._run_step(t, spec))
-                if step is not None
-                else self._default_handler(stage)
-            )
+            if isinstance(step, dict) and step.get("session"):
+                # A stage that continues the existing session (release after
+                # review: the agent still knows the branch, build and services).
+                handler = lambda t, spec=step: self._session_step(t, spec)
+            elif step is not None:
+                handler = lambda t, spec=step: self._run_step(t, spec)
+            else:
+                handler = self._default_handler(stage)
         started = time.time()
         try:
             result = handler(task) or {}
@@ -440,6 +443,44 @@ class Engine:
         result = self._run_agent(task, agent=CommandAgent(options))
         result["agent"] = f"step:{task['stage']}"
         return result
+
+    def _session_step(self, task: dict, spec: dict) -> dict:
+        """A stage that continues the existing agent session instead of starting one.
+
+        Used for release: the agent that wrote the code knows the branch, the
+        build and which services changed, so asking a fresh run would only
+        re-research.  The step sends one message and polls the same session,
+        exactly like the work stage does.
+        """
+        agent = self.agent_for(task)
+        if not task.get("session"):
+            return {
+                "ok": False,
+                "status": "failed",
+                "note": "该阶段需要已有会话，但任务没有会话（未派单）",
+            }
+        if task.get("polling"):
+            return self._poll_work(task)
+        message = str(spec.get("session") or "")
+        result = agent.send(task, message)
+        if not result.get("ok"):
+            return {
+                "ok": False,
+                "status": "failed",
+                "note": "通知 agent 失败：" + str(result.get("detail") or "")[:500],
+            }
+        interval = float(spec.get("interval") or getattr(agent, "poll_interval", 15) or 15)
+        return {
+            "ok": True,
+            "agent": agent.name,
+            "status": "pending",
+            "stage": task["stage"],
+            "delay": interval,
+            "polling": 1,
+            "poll_started_at": time.time(),
+            "note": "已通知 agent 继续（等待交付）",
+            "output": str(result.get("detail") or "")[-4000:],
+        }
 
     def _ticket_of(self, task: dict) -> str:
         payload = task.get("payload")
