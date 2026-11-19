@@ -4,6 +4,9 @@ No product-specific code is tested here on purpose — t3, claude and codex are
 all just different `agents` blocks.
 """
 
+import datetime
+import json
+import time
 import unittest
 
 from hub.adapters import load_agent
@@ -171,6 +174,31 @@ class CommandAgentTest(unittest.TestCase):
         ).poll({})
         self.assertEqual(failed["status"], "failed")
         self.assertIn("构建挂了", failed["error"])
+
+    def test_a_just_completed_turn_is_not_a_finished_job(self):
+        # 2026-11-19: the release agent said «已启动，正在等结果» and ended its
+        # turn; the thread read `completed` and the task was closed before the
+        # deploy (a new run) came back. A recently updated thread keeps polling.
+        def thread(updated_at):
+            body = json.dumps({"thread": {"status": "completed", "updatedAt": updated_at}})
+            return self.async_agent("printf '%s' '" + body + "'").poll({})
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        fresh = thread(now.isoformat().replace("+00:00", "Z"))
+        self.assertEqual(fresh["status"], "running")
+
+        old = now - datetime.timedelta(minutes=5)
+        quiet = thread(old.isoformat().replace("+00:00", "Z"))
+        self.assertEqual(quiet["status"], "done")
+
+    def test_a_fresh_poll_pass_waits_even_if_the_thread_is_old(self):
+        # A session stage starts with a prompt, so the thread may read
+        # `completed` with an old `updatedAt` before the agent even runs; the
+        # pass's own age has to cover the settle window too.
+        body = json.dumps({"thread": {"status": "completed", "updatedAt": "2020-01-01T00:00:00Z"}})
+        agent = self.async_agent("printf '%s' '" + body + "'")
+        result = agent.poll({"poll_started_at": time.time()})
+        self.assertEqual(result["status"], "running")
 
     def test_a_failing_poll_command_keeps_the_task_running(self):
         # Transient CLI errors must not fail a live task; max_seconds ends it.

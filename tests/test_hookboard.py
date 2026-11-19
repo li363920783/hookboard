@@ -92,6 +92,24 @@ class HubTestCase(unittest.TestCase):
         self.fail("engine did not settle")
 
 
+class BoardLanesTest(HubTestCase):
+    def test_a_polled_task_is_shown_as_running(self):
+        # Async agents park the task as pending + polling=1; the board used to
+        # file that under 待处理, leaving 进行中 always empty.
+        from hub.server import HubServer
+
+        task = self.new_task()
+        self.store.update_task(
+            task["id"], where_status="pending", status="pending", polling=1
+        )
+        columns = {
+            column["key"]: [t["id"] for t in column["tasks"]]
+            for column in HubServer(self.store, self.engine, self.cfg).board()["columns"]
+        }
+        self.assertEqual(columns["running"], [task["id"]])
+        self.assertEqual(columns["pending"], [])
+
+
 class AtomicClaimTest(HubTestCase):
     def test_only_one_worker_wins_the_claim(self):
         task = self.new_task()

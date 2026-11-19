@@ -174,6 +174,32 @@ class GatewayOptInTest(unittest.TestCase):
         gateway = self._gateway({"app_id": "a", "app_secret": "s"})
         self.assertTrue(gateway._allowed("ou_anyone"))
 
+    def test_an_inbound_message_creates_the_task_in_the_configured_project(self):
+        # Without a project the task falls to the `default` echo agent, which
+        # "finishes" instantly — the bug behind "发个活直接给我完工卡片".
+        from types import SimpleNamespace as NS
+
+        class FakeStore:
+            def create_task(self, **kwargs):
+                self.kwargs = kwargs
+                return {"id": 7, "title": kwargs["title"]}, True
+
+        gateway = self._gateway(
+            {"app_id": "a", "app_secret": "s", "project": "feishu"}
+        )
+        gateway.store = FakeStore()
+        gateway.reply = mock.Mock()
+        data = NS(event=NS(
+            sender=NS(sender_type="user", sender_id=NS(open_id="ou_1", user_id="u_1")),
+            message=NS(
+                message_id="m-1", chat_id="oc_1", chat_type="p2p", message_type="text",
+                content='{"text": "修一下患者卡片"}',
+            ),
+        ))
+        gateway._on_message(data)
+        self.assertEqual(gateway.store.kwargs["project"], "feishu")
+        self.assertEqual(gateway.store.kwargs["source"], "feishu")
+
 
 if __name__ == "__main__":
     unittest.main()

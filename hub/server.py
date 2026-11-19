@@ -72,11 +72,31 @@ class HubServer:
             ("running", "进行中"),
             ("waiting", "等你审批"),
             ("done", "已完成"),
+            # A failed task used to vanish from the board: no column held it,
+            # so nobody could see it or retry it.
+            ("failed", "失败"),
         ]
+        statuses = {
+            "pending": ("pending",),
+            "running": ("running",),
+            "waiting": ("waiting",),
+            "done": ("done",),
+            "failed": ("failed", "cancelled"),
+        }
+
+        def lane(task: dict) -> str:
+            # An async task waits for its agent with status `pending` and
+            # polling=1. Showing it under 待处理 made "进行中" permanently
+            # empty, which read as "nothing is running".
+            if task["status"] == "pending" and task.get("polling"):
+                return "running"
+            return task["status"]
+
         counts = {key: 0 for key, _ in columns}
         for task in tasks:
-            if task["status"] in counts:
-                counts[task["status"]] += 1
+            for key, members in statuses.items():
+                if lane(task) in members:
+                    counts[key] += 1
         return {
             "ok": True,
             "columns": [
@@ -86,7 +106,7 @@ class HubServer:
                     "tasks": [
                         self.task_card(task, approvals.get(task["id"]))
                         for task in tasks
-                        if task["status"] == key
+                        if lane(task) in statuses[key]
                     ],
                 }
                 for key, title in columns

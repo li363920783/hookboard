@@ -53,6 +53,12 @@ The run state is read from ``parse.state`` (default ``thread.status``); states
 in ``poll.running`` keep waiting, ``poll.failed`` ends the task as failed and
 anything else counts as done.  The last agent reply (``parse.reply``, default
 ``messages``) becomes the delivered output.
+
+A done-looking state only counts once the session has been quiet for
+``poll.settle`` seconds (default 45), timed from ``parse.updated`` (default
+``thread.updatedAt``): an agent can end a turn while a background job (a
+deploy) is still running and then continue in a new run, and ending the stage
+on that first pause reports the wrong result.
 """
 
 from __future__ import annotations
@@ -60,6 +66,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
+from datetime import datetime
 
 
 def _cap(text: str, limit: int = 60000) -> str:
@@ -96,6 +104,9 @@ class CommandAgent:
         self.poll_command = str(poll.get("command") or "")
         self.poll_interval = float(poll.get("interval", 15))
         self.poll_max_seconds = float(poll.get("max_seconds", 0) or 0)
+        # A finished turn is not always a finished job (see poll()): wait this
+        # many seconds of silence before calling the session done.
+        self.poll_settle = float(poll.get("settle", 45))
         self.poll_running = [
             str(v) for v in (poll.get("running") or ["running", "starting", "queued", "preparing"])
         ]
@@ -329,7 +340,31 @@ class CommandAgent:
                     "error": f"agent {state}" + (f"：{detail}" if detail else "")}
         if not state or state in self.poll_running:
             return {"ok": True, "status": "running", "text": text, "error": None}
+        # The agent can end a turn while a background job (a deploy) is still
+        # running and then start a new run when it returns — the thread reads
+        # `completed` in between and the stage would end on "正在等结果".
+        # Only trust completion after a quiet window.
+        # Also give the pass itself a settle window: a session stage starts by
+        # sending a prompt, so the thread's own timestamp is already older than
+        # `settle` on the first poll (in a resumed session, hours older).
+        quiet = self._quiet_seconds(data)
+        started = float(task.get("poll_started_at") or 0)
+        if (quiet is not None and quiet < self.poll_settle) or (
+            started and time.time() - started < self.poll_settle
+        ):
+            return {"ok": True, "status": "running", "text": text, "error": None}
         return {"ok": True, "status": "done", "text": text, "error": None}
+
+    def _quiet_seconds(self, data: dict) -> float | None:
+        """Seconds since the session last changed; None when it reports no time."""
+        stamp = self._dig(data, self.parse.get("updated") or "thread.updatedAt")
+        if not stamp:
+            return None
+        try:
+            when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return time.time() - when.timestamp()
 
     def _reply_text(self, data: dict) -> str:
         messages = self._dig(data, self.parse.get("reply") or "messages")

@@ -118,6 +118,9 @@ class FeishuGateway:
         self.reply = FeishuNotifier(self.entry, outbox_dir)
         self.binding_path = self.notifier.binding_path
         self.allowed = set(self.entry.get("allowed_open_ids") or [])
+        # Messages create tasks under this project, so they get that project's
+        # agent and steps instead of the `default` echo agent.
+        self.project = str(self.entry.get("project") or "")
         self._client = None
         self._thread = None
 
@@ -197,6 +200,7 @@ class FeishuGateway:
             title=text[:200],
             payload={"chat_id": msg["chat_id"], "open_id": msg["open_id"]},
             stage=self.stage,
+            project=self.project,
         )
         if created:
             self.reply.send_text(

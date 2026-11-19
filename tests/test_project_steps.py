@@ -305,7 +305,7 @@ class DigestTestCase(unittest.TestCase):
         self.assertIn("二次转发后待办仍显示第一次备注", detail)
         self.assertIn("agent 交付", detail)
         # What either button does.
-        self.assertIn("进入收尾", detail)
+        self.assertIn("回写单据状态", detail)
         self.assertIn("发回原会话", detail)
         # The review card does not re-dump the raw field digest.
         self.assertNotIn("缺陷标题", detail)
@@ -505,7 +505,8 @@ class DigestTestCase(unittest.TestCase):
         cfg.projects = {
             "tapd": {"steps": {"release": {"session": "复核已通过，请发版", "interval": 0.01}}}
         }
-        engine = Engine(self.store, cfg, agent=self.agent, notifiers={})
+        rec = RecordingNotifier()
+        engine = Engine(self.store, cfg, agent=self.agent, notifiers={"rec": rec})
         task, _ = self.store.create_task(
             source="tapd", kind="bug", external_id="1", title="单据",
             stage="release", project="tapd",
@@ -518,12 +519,17 @@ class DigestTestCase(unittest.TestCase):
         self.assertEqual(waiting["status"], "pending")
         self.assertEqual(waiting["stage"], "release")
         self.assertEqual(waiting["polling"], 1)
+        # Entering a long session stage must announce itself, not wait for the end.
+        self.assertEqual(len(rec.sent), 1)
+        self.assertIn("开始发版", rec.sent[0][0])
+        self.assertEqual(rec.context.get("notice_kind"), "stage")
 
         self.store.update_task(task["id"], where_status="pending", status="running")
         engine.process(self.store.get_task(task["id"]))
         done = self.store.get_task(task["id"])
         self.assertEqual(done["stage"], "finish")
         self.assertEqual(len(self.agent.messages), 1)  # polling never re-sends
+        self.assertEqual(len(rec.sent), 1)  # polling ticks do not re-announce
 
     def test_a_session_step_sends_after_a_crash_before_the_message(self):
         # requeue_stale turns a stale running task into polling=1; if the crash

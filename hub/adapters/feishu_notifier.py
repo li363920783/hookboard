@@ -115,14 +115,19 @@ class FeishuNotifier:
             # A finished task is a report, not a gate: title + outcome + link,
             # no decision buttons.
             kind = str(ctx.get("notice_kind") or "done")
-            label = "任务完成" if kind == "done" else "任务失败"
+            # Three kinds: the task ended well, it ended badly, or a long
+            # session stage (release) just started and will report later.
+            label, template = {
+                "done": ("任务完成", "green"),
+                "failed": ("任务失败", "red"),
+            }.get(kind, ("进度通知", "blue"))
             link = url or f"{public_base}/"
             markdown = f"**{task_title}**\n\n{(body_md or '').strip()[:7000]}\n\n[打开看板]({link})"
             return {
                 "schema": "2.0",
                 "header": {
                     "title": {"tag": "plain_text", "content": f"Hookboard · {label}"},
-                    "template": "green" if kind == "done" else "red",
+                    "template": template,
                 },
                 "body": {
                     "elements": [

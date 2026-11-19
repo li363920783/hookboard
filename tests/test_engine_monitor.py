@@ -147,6 +147,14 @@ class MonitorTestCase(unittest.TestCase):
         self.assertEqual(finished["status"], "pending")
         runs = self.store.task_detail(task["id"])["runs"]
         self.assertTrue(any("交付内容" in (run.get("output") or "") for run in runs))
+        # Two poll ticks must not each log a stage entry: that is what buried
+        # the real history under 100+ identical "stage work" rows.
+        stages = [
+            event["detail"]
+            for event in self.store.task_detail(task["id"])["events"]
+            if event["kind"] == "stage"
+        ]
+        self.assertEqual(stages, ["work"])
 
     def test_async_failure_marks_the_task_failed(self):
         self.agent.states = ["running", "failed"]
@@ -158,6 +166,25 @@ class MonitorTestCase(unittest.TestCase):
         self.assertEqual(failed["status"], "failed")
         self.assertEqual(failed["polling"], 0)
         self.assertIn("崩了", failed["note"])
+
+    def test_retry_re_attaches_to_the_failed_session(self):
+        # The thread usually keeps working after the run hookboard saw fail;
+        # retry must poll it again, not dispatch a second thread on the ticket.
+        self.agent.states = ["failed"]
+        task = self.new_task()
+        self.engine.process(self.claim(task))  # dispatch
+        self.engine.process(self.claim(task))  # poll -> failed
+        self.assertEqual(self.store.get_task(task["id"])["status"], "failed")
+        self.assertEqual(self.store.get_task(task["id"])["session"], "t-1")
+
+        self.agent.states = ["done"]
+        self.assertEqual(self.store.retry_task(task["id"])["polling"], 1)
+        self.engine.process(self.claim(task))
+
+        after = self.store.get_task(task["id"])
+        self.assertEqual(after["stage"], "review")
+        self.assertEqual(after["status"], "pending")
+        self.assertEqual(len(self.agent.prompts), 1)  # no second dispatch
 
     # ------------------------------------------------- same ticket, same session
 
@@ -248,6 +275,20 @@ class MonitorTestCase(unittest.TestCase):
         self.engine.process(self.claim(new))
         self.assertEqual(self.store.get_task(old["id"])["status"], "done")
         self.assertEqual(self.store.get_task(new["id"])["stage"], "plan")
+
+    def test_a_polled_stage_logs_one_stage_event_per_pass(self):
+        # Hundreds of identical "stage work" rows buried the real work, but a
+        # new pass must log again or stage_entered_at goes stale.
+        task = self.new_task()
+        first = self.claim(task)
+        self.engine.process(first)
+        self.engine.process(self.claim(first))
+        rows = [
+            event
+            for event in self.store.events_for(task["id"])
+            if event["kind"] == "stage" and event["detail"] == "work"
+        ]
+        self.assertEqual(len(rows), 1)
 
     def test_polling_times_out_after_max_seconds(self):
         self.agent.poll_max_seconds = 1

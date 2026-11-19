@@ -395,13 +395,22 @@ class Store:
             return _task(conn.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone())
 
     def retry_task(self, task_id: int) -> dict | None:
-        """Requeue a failed task at its current stage; anything else is untouched."""
+        """Requeue a failed task at its current stage; anything else is untouched.
+
+        A failure at `work` that already has a session means the agent's thread
+        exists: retry re-attaches to it (poll again) instead of dispatching a
+        second thread for the same ticket. The thread often kept working and
+        finished after the run we saw fail.
+        """
         now = time.time()
         with self._conn() as conn:
             cur = conn.execute(
-                "UPDATE tasks SET status='pending', next_run_at=NULL, note=NULL, polling=0, "
-                "poll_started_at=NULL, updated_at=? WHERE id=? AND status='failed'",
-                (now, task_id),
+                "UPDATE tasks SET status='pending', next_run_at=NULL, note=NULL, "
+                "polling=CASE WHEN coalesce(session,'')<>'' AND stage='work' THEN 1 ELSE polling END, "
+                "poll_started_at=CASE WHEN coalesce(session,'')<>'' AND stage='work' THEN ? "
+                "ELSE poll_started_at END, "
+                "updated_at=? WHERE id=? AND status='failed'",
+                (now, now, task_id),
             )
             if cur.rowcount == 1:
                 self._event(conn, task_id, "retry", "requeued after failure")

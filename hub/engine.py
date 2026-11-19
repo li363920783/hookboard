@@ -39,6 +39,9 @@ _PROMPT_RULES = (
     "不要用「正在等待…」收尾；卡在外部流程就写清楚卡在哪、谁去推进。"
 )
 
+# Human words for the stages that continue a session (cards are read by people).
+_SESSION_STAGE_LABELS = {"release": "发版", "work": "施工", "finish": "收尾"}
+
 _TAG = re.compile(r"<[^>]+>")
 _SPACE = re.compile(r"\s+")
 _SECRETISH = re.compile(r"secret|token|passw|sign|api_?key|^key$|^pat$", re.I)
@@ -219,7 +222,17 @@ class Engine:
         # that session; only a ticket we have never talked to starts a new one.
         if stage == self.stages[0] and self._merge_into_previous(task):
             return
-        self.store.add_event(task["id"], "stage", stage)
+        # One event per stage entry. A polled task re-ticks the same stage every
+        # few seconds; logging each tick buried the actual work under 100+
+        # identical "stage work" rows in the detail view. A new poll pass
+        # (retry, requeue) carries a fresh `poll_started_at` and logs again, so
+        # `stage_entered_at` / `stage_changed_at` never go stale.
+        entered = self.store.stage_entered_at(task["id"], stage)
+        # The entry event and the start of its poll pass land in the same tick,
+        # so only a genuinely later pass (retry, rework) logs a second event.
+        started = float(task.get("poll_started_at") or 0)
+        if not task.get("polling") or started - entered > 1:
+            self.store.add_event(task["id"], "stage", stage)
 
         if stage in self.approve_stages(task):
             self._gate(task)
@@ -488,6 +501,19 @@ class Engine:
                 "note": "通知 agent 失败：" + str(result.get("detail") or "")[:500],
             }
         self.store.add_event(task["id"], "session_step", task["stage"])
+        # The session can run for a long time; without this card the person has
+        # no idea the release started and has to stare at T3 to find out.
+        stage = task["stage"]
+        sent_at = self.store.session_step_at(task["id"], stage) or time.time()
+        self._notify(
+            task,
+            f"stage#{stage}@{int(sent_at)}",
+            "stage",
+            f"开始{_SESSION_STAGE_LABELS.get(stage, stage)}：{task.get('title') or ''}",
+            f"**动作**：已把{_SESSION_STAGE_LABELS.get(stage, stage)}指令发进原会话，"
+            "agent 正在执行（构建 → 发布 → 验证）。\n\n"
+            "**你要做的**：不用操作。结束后会再推一张「任务完成」卡片，里面有交付结果和构建号。",
+        )
         interval = float(spec.get("interval") or getattr(agent, "poll_interval", 15) or 15)
         return {
             "ok": True,
@@ -787,7 +813,7 @@ class Engine:
             if task.get("session"):
                 parts.append(f"**原会话**：`{task['session']}`（「去处理」→ 发指令）")
             parts.append(
-                "**通过**：进入收尾（按项目配置回写单据/发版）。"
+                "**通过**：立即回写单据状态，然后按项目配置发版。"
                 "**打回**：你的意见会发回原会话，agent 重新处理。"
             )
         else:
@@ -805,7 +831,7 @@ class Engine:
         """
         runs = self.store.task_detail(task["id"]).get("runs") or []
         for run in reversed(runs):
-            if run.get("stage") in ("work", "finish") and run.get("ok"):
+            if run.get("stage") in ("work", "finish", "release") and run.get("ok"):
                 text = str(run.get("output") or "").strip()
                 if text:
                     text = long_text(text, 10**6)
@@ -826,8 +852,13 @@ class Engine:
 
     def _finished_body(self, task: dict, kind: str) -> str:
         if kind == "done":
+            # A done task walked every stage, so when a release stage exists it
+            # has run; say so instead of leaving the reader to guess.
+            done_line = "**变动**：复核已通过、发版完成，任务结束"
+            if "release" not in self.stages:
+                done_line = "**变动**：复核已通过，任务结束"
             parts = [
-                "**变动**：复核已通过，任务结束",
+                done_line,
                 "**完成内容**：\n" + (self._delivery_summary(task) or "（没有输出记录）"),
             ]
             if task.get("note"):
@@ -847,10 +878,13 @@ class Engine:
         label = "任务完成" if kind == "done" else "任务失败"
         title = f"{label}：{task.get('title') or ''}"
         body = self._finished_body(task, kind)
-        link = self.config.public_base.rstrip("/") + "/"
         # Attempt number in the key: a replayed claim is deduped, while a
         # retried task that ends again still reports a second time.
-        key = f"{kind}#{task.get('attempts') or 0}"
+        self._notify(task, f"{kind}#{task.get('attempts') or 0}", kind, title, body)
+
+    def _notify(self, task: dict, key: str, kind: str, title: str, body: str) -> None:
+        """Push one card, once per (task, key)."""
+        link = self.config.public_base.rstrip("/") + "/"
         for name, notifier in self.dispatch_targets(task).items():
             if not self.store.claim_notification(task["id"], key, name):
                 continue
