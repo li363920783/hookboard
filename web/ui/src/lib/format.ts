@@ -48,10 +48,27 @@ export function kindLabel(kind: string): string {
   return KIND_LABEL[kind] || kind;
 }
 
-/** Ticket bodies and agent reports are light markdown; render bold only. */
+/** Ticket bodies and agent reports are light markdown; render bold and code spans. */
 export function mdInline(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/\*\*([^*\n]{1,80})\*\*/g, "<strong>$1</strong>");
+  // NUL is the placeholder delimiter below, so real ones must never survive.
+  const escaped = text
+    .replace(/\u0000/g, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  // Code spans are lifted out first: whatever sits between backticks must not
+  // be bolded, and long commands/URLs get their own wrapping style.
+  const codes: string[] = [];
+  const held = escaped.replace(/`([^`\n]{1,300})`/g, (_, inner: string) => {
+    codes.push(inner);
+    return `\u0000${codes.length - 1}\u0000`;
+  });
+  return held
+    .replace(/\*\*([^*\n]{1,80})\*\*/g, "<strong>$1</strong>")
+    .replace(/\u0000(\d+)\u0000/g, (_, index: string) => {
+      const code = codes[Number(index)];
+      return code === undefined ? "" : `<code>${code}</code>`;
+    });
 }
 
 export function approvalState(ap: Approval): string {

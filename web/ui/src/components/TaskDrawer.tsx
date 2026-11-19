@@ -35,6 +35,9 @@ import {
 } from "@/lib/format";
 import type { Approval, Detail, Run } from "@/lib/types";
 
+// One long line (JSON output, a build log) must not widen the drawer.
+const WRAP = { whiteSpace: "pre-wrap", overflowWrap: "anywhere" } as const;
+
 const STATUS_TONE: Record<string, string> = {
   pending: "gray",
   running: "blue",
@@ -75,11 +78,15 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
           WebkitBackdropFilter: "blur(26px) saturate(150%)",
           borderLeft: "1px solid rgba(255,255,255,.08)",
         },
+        // Opaque enough that the body does not read through the title while
+        // scrolling, but still the same frosted surface.
         header: {
-          background: "transparent",
+          background: "rgba(15,16,24,.94)",
+          backdropFilter: "blur(18px)",
+          WebkitBackdropFilter: "blur(18px)",
           borderBottom: "1px solid rgba(255,255,255,.07)",
         },
-        body: { paddingBottom: 28 },
+        body: { paddingBottom: 28, overflowX: "hidden" },
       }}
       title={
         task ? (
@@ -123,7 +130,7 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
       ) : (
         <Stack gap="lg">
           <Section title="概览">
-            <Table withRowBorders={false} verticalSpacing={5} fz="xs" horizontalSpacing={0}>
+            <Table withRowBorders={false} verticalSpacing={5} fz="xs" horizontalSpacing={0} style={{ tableLayout: "fixed", width: "100%" }}>
               <Table.Tbody>
                 <Fact label="状态" value={`${task!.status} / ${task!.stage}`} />
                 <Fact label="项目" value={task!.project || "—"} />
@@ -141,10 +148,10 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
 
           {String(task!.context || "").trim() ? (
             <Section title="需求详情">
-              <Paper p="sm" radius="lg" withBorder style={{ background: "rgba(255,255,255,.04)", maxHeight: "32vh", overflow: "auto" }}>
+              <Paper p="sm" radius="lg" withBorder style={{ background: "rgba(255,255,255,.04)" }}>
                 <Box
                   className="hb-prose"
-                  style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                  style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}
                   dangerouslySetInnerHTML={{ __html: mdInline(String(task!.context)) }}
                 />
               </Paper>
@@ -176,7 +183,15 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
               <Accordion.Item value="payload">
                 <Accordion.Control fz="xs">报文 payload</Accordion.Control>
                 <Accordion.Panel>
-                  <Code block style={{ maxHeight: "40vh", overflow: "auto", fontSize: 11 }}>
+                  <Code
+                    block
+                    style={{
+                      maxHeight: "40vh",
+                      overflow: "auto",
+                      fontSize: 11,
+                      ...WRAP,
+                    }}
+                  >
                     {JSON.stringify(task!.payload || {}, null, 2)}
                   </Code>
                 </Accordion.Panel>
@@ -184,7 +199,15 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
               <Accordion.Item value="events">
                 <Accordion.Control fz="xs">原始事件 {(detail.events || []).length} 条</Accordion.Control>
                 <Accordion.Panel>
-                  <Code block style={{ maxHeight: "40vh", overflow: "auto", fontSize: 11 }}>
+                  <Code
+                    block
+                    style={{
+                      maxHeight: "40vh",
+                      overflow: "auto",
+                      fontSize: 11,
+                      ...WRAP,
+                    }}
+                  >
                     {(detail.events || []).slice(-300).map((event) => `${clock(event.ts)}  ${event.kind}  ${event.detail || ""}`).join("\n")}
                   </Code>
                 </Accordion.Panel>
@@ -233,7 +256,7 @@ function Fact({ label, value, mono }: { label: string; value: string; mono?: boo
   return (
     <Table.Tr>
       <Table.Td w={88} style={{ color: "var(--mantine-color-dark-2)", verticalAlign: "top" }}>{label}</Table.Td>
-      <Table.Td style={{ wordBreak: "break-word" }}>
+      <Table.Td style={{ overflowWrap: "anywhere" }}>
         <Text size="xs" ff={mono ? "monospace" : undefined} lh={1.5}>{value}</Text>
       </Table.Td>
     </Table.Tr>
@@ -320,10 +343,10 @@ function DeliveryRun({ runs }: { runs?: Run[] }) {
   const seconds = Math.max(0, Math.round((run.finished_at || 0) - (run.started_at || 0)));
   return (
     <Section title={`交付结果 · ${run.stage}${seconds ? ` · ${seconds}s` : ""}`}>
-      <Paper p="sm" radius="lg" withBorder style={{ background: "rgba(255,255,255,.04)", maxHeight: "32vh", overflow: "auto" }}>
+      <Paper p="sm" radius="lg" withBorder style={{ background: "rgba(255,255,255,.04)" }}>
         <Box
           className="hb-prose"
-          style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+          style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}
           dangerouslySetInnerHTML={{ __html: mdInline(String(run.output || "")) }}
         />
       </Paper>
@@ -334,7 +357,13 @@ function DeliveryRun({ runs }: { runs?: Run[] }) {
 function RunsTable({ runs }: { runs: Run[] }) {
   if (!runs.length) return <Text size="xs" c="dimmed">暂无运行记录</Text>;
   return (
-    <Table highlightOnHover withRowBorders={false} verticalSpacing={5} fz="xs">
+    <Table
+      highlightOnHover
+      withRowBorders={false}
+      verticalSpacing={5}
+      fz="xs"
+      style={{ tableLayout: "fixed", width: "100%" }}
+    >
       <Table.Thead>
         <Table.Tr>
           <Table.Th w={80}>阶段</Table.Th>
@@ -365,7 +394,16 @@ function RunsTable({ runs }: { runs: Run[] }) {
                       <summary style={{ cursor: "pointer", fontSize: 11, color: "var(--mantine-color-dimmed)" }}>
                         展开全部
                       </summary>
-                      <Code block style={{ maxHeight: "32vh", overflow: "auto", fontSize: 11, marginTop: 6 }}>
+                      <Code
+                        block
+                        style={{
+                          maxHeight: "32vh",
+                          overflow: "auto",
+                          fontSize: 11,
+                          marginTop: 6,
+                          ...WRAP,
+                        }}
+                      >
                         {String(run.output)}
                       </Code>
                     </details>
