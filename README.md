@@ -257,9 +257,16 @@ token. No IM long-connection is involved.
 
 ## Board
 
-Single file, `web/index.html`, no CDN or build step — it works offline. Four columns
-(待处理 / 进行中 / 等你审批 / 已完成), dark theme, single column on a phone. Waiting cards embed
-the approval buttons and a free-text box; decisions go straight to `POST /a/{token}`.
+One file is served, `web/index.html`, with no CDN and no runtime dependency — it still works
+offline. It is built from the React + Mantine sources in `web/ui/`:
+
+```bash
+cd web/ui && pnpm install && pnpm build   # inlines everything into web/index.html
+```
+
+The board has five lanes (待处理 / 进行中 / 等你审批 / 已完成 / 失败), a dark Mantine theme, and
+one lane per row on a phone. Waiting cards embed the approval buttons and a free-text box;
+decisions go straight to `POST /a/{token}`.
 
 ## Adapters
 
