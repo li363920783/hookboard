@@ -1,16 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Select } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { Box, Button, Group, Modal, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { clearToken, getToken, saveToken } from "@/lib/api";
 
 export function ComposerDialog({
@@ -48,48 +37,53 @@ export function ComposerDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form onSubmit={submit} className="grid gap-4">
-          <DialogHeader>
-            <DialogTitle>下发任务指令</DialogTitle>
-            <DialogDescription>
-              写清要做什么和验收标准，任务会走流水线审批后再派单。
-            </DialogDescription>
-          </DialogHeader>
-          <label className="grid gap-1.5">
-            <span className="text-muted-foreground text-xs">指令 / 标题</span>
-            <Textarea
-              rows={5}
-              autoFocus
-              id="composer-text"
-              name="title"
-              placeholder="要做什么、验收标准是什么。会按任务流水线走审批再派单。"
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-            />
-          </label>
-          <label className="grid gap-1.5">
-            <span className="text-muted-foreground text-xs">项目</span>
-            <Select id="composer-project" name="project" value={project} onChange={(event) => setProject(event.target.value)} className="w-full">
-              <option value="">默认（不指定）</option>
-              {projects.map((name) => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </Select>
-          </label>
-          <p className="text-muted-foreground text-xs">
-            写操作需要 API Token（右上角设置一次，保存在本机浏览器）。
-          </p>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>取消</Button>
-            <Button type="submit" disabled={busy || !title.trim()}>
-              {busy ? "创建中…" : "创建任务"}
+    <Modal
+      opened={open}
+      onClose={() => onOpenChange(false)}
+      title="下发任务指令"
+      centered
+      size="lg"
+      overlayProps={{ backgroundOpacity: 0.55, blur: 2 }}
+      styles={{ content: { background: "var(--mantine-color-dark-8)" } }}
+    >
+      <Box component="form" onSubmit={submit}>
+        <Stack gap="md">
+          <Text size="xs" c="dimmed" lh={1.5}>
+            写清要做什么和验收标准，任务会走流水线审批后再派单。
+          </Text>
+          <Textarea
+            size="sm"
+            rows={5}
+            data-autofocus
+            id="composer-text"
+            name="title"
+            label="指令 / 标题"
+            placeholder="要做什么、验收标准是什么。会按任务流水线走审批再派单。"
+            value={title}
+            onChange={(event) => setTitle(event.currentTarget.value)}
+          />
+          <Select
+            size="sm"
+            id="composer-project"
+            name="project"
+            label="项目"
+            placeholder="默认（不指定）"
+            data={projects.map((name) => ({ value: name, label: name }))}
+            value={project || null}
+            onChange={(next) => setProject(next || "")}
+            clearable
+            comboboxProps={{ withinPortal: true }}
+          />
+          <Text size="xs" c="dimmed">写操作需要 API Token（右上角设置一次，保存在本机浏览器）。</Text>
+          <Group justify="flex-end" gap="xs" mt="xs">
+            <Button variant="subtle" onClick={() => onOpenChange(false)}>取消</Button>
+            <Button type="submit" disabled={busy || !title.trim()} loading={busy}>
+              创建任务
             </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+          </Group>
+        </Stack>
+      </Box>
+    </Modal>
   );
 }
 
@@ -108,29 +102,34 @@ export function SettingsDialog({
   }, [open]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>API Token</DialogTitle>
-          <DialogDescription>
-            新建任务、发指令、唤醒或取消任务需要它；只存在这台浏览器里。
-          </DialogDescription>
-        </DialogHeader>
-        <label className="grid gap-1.5">
-          <span className="text-muted-foreground text-xs">X-Hub-Token</span>
-          <Input
-            id="token-input"
-            name="token"
-            type="password"
-            autoComplete="off"
-            placeholder="服务端 config 里的 server.api_token"
-            value={value}
-            onChange={(event) => setValue(event.target.value)}
-          />
-        </label>
-        <DialogFooter>
+    <Modal
+      opened={open}
+      onClose={() => onOpenChange(false)}
+      title="API Token"
+      centered
+      overlayProps={{ backgroundOpacity: 0.55, blur: 2 }}
+      styles={{ content: { background: "var(--mantine-color-dark-8)" } }}
+    >
+      <Stack gap="md">
+        <Text size="xs" c="dimmed" lh={1.5}>
+          新建任务、发指令、唤醒或取消任务需要它；只存在这台浏览器里。
+        </Text>
+        <TextInput
+          size="sm"
+          id="token-input"
+          name="token"
+          label="X-Hub-Token"
+          type="password"
+          autoComplete="off"
+          data-autofocus
+          placeholder="服务端 config 里的 server.api_token"
+          value={value}
+          onChange={(event) => setValue(event.currentTarget.value)}
+        />
+        <Group justify="space-between" mt="xs">
           <Button
-            variant="ghost"
+            variant="subtle"
+            color="red"
             onClick={() => {
               clearToken();
               onOpenChange(false);
@@ -148,8 +147,8 @@ export function SettingsDialog({
           >
             保存
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </Group>
+      </Stack>
+    </Modal>
   );
 }

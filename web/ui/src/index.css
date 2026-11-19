@@ -1,91 +1,103 @@
-@import "tailwindcss";
-
-/* shadcn/ui neutral dark theme, copied as tokens (this app has no theme switch). */
-:root {
-  --radius: 0.625rem;
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-
-  /* Status colours are functional identifiers only, kept desaturated. */
-  --status-pending: oklch(0.68 0.02 260);
-  --status-running: oklch(0.72 0.07 250);
-  --status-waiting: oklch(0.76 0.09 80);
-  --status-done: oklch(0.72 0.07 155);
-  --status-failed: oklch(0.68 0.1 20);
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+body {
+  background: #101014;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  html,
-  body,
-  #root {
-    height: 100%;
-  }
-  body {
-    @apply bg-background text-foreground antialiased;
-    font-family: var(--font-sans);
-  }
-  ::selection {
-    background: oklch(0.72 0.07 250 / 0.25);
+* {
+  box-sizing: border-box;
+}
+
+.hb-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.hb-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+}
+.hb-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+.hb-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hb-board {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px 16px;
+  overflow-y: auto;
+}
+
+@media (min-width: 768px) {
+  .hb-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@keyframes hb-fade {
-  from { opacity: 0; }
+@media (max-width: 1279px) {
+  /* Below the 5-column layout the page scrolls as a whole, so columns grow
+     with their content instead of each becoming its own scroll box. */
+  .hb-board {
+    align-items: start;
+    align-content: start;
+    grid-auto-rows: max-content;
+  }
+  .hb-board > .hb-col {
+    min-height: auto !important;
+  }
+  .hb-col-body {
+    flex: none !important;
+    min-height: auto !important;
+    overflow: visible !important;
+  }
 }
-@keyframes hb-slide-right {
-  from { transform: translateX(24px); opacity: 0.5; }
+
+@media (min-width: 1280px) {
+  .hb-board {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    overflow: hidden;
+  }
 }
-@keyframes hb-toast-in {
-  from { opacity: 0; transform: translate(-50%, 8px); }
+
+.hb-task {
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
+.hb-task:hover {
+  border-color: var(--mantine-color-dark-3) !important;
+}
+
+.hb-prose strong {
+  color: #fff;
+  font-weight: 600;
+}
+
+.hb-progress {
+  animation: hb-progress 1.1s ease-in-out infinite;
+}
+
 @keyframes hb-progress {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(340%); }
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(400%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hb-progress {
+    animation: none;
+  }
 }

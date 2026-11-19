@@ -1,17 +1,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Boxes, Plus, RefreshCw, Settings } from "lucide-react";
+import {
+  ActionIcon,
+  Alert,
+  Box,
+  Button,
+  Group,
+  Select,
+  Text,
+  Title,
+  Tooltip,
+} from "@mantine/core";
+import { notifications } from "@mantine/notifications";
+import {
+  IconAlertCircle,
+  IconLayoutKanban,
+  IconPlus,
+  IconRefresh,
+  IconSettings,
+} from "@tabler/icons-react";
 import { Board, COLUMNS } from "@/components/Board";
 import { ComposerDialog, SettingsDialog } from "@/components/Dialogs";
 import { TaskDrawer } from "@/components/TaskDrawer";
-import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
 import { Unauthorized, decide, fetchBoard, fetchDetail, writeJSON } from "@/lib/api";
-import { cn } from "@/lib/utils";
 import type { BoardData, Detail, Task } from "@/lib/types";
 
 const SOURCE_KEY = "hookboard_source";
+const ALL_SOURCES = "*";
 
-/** Hub approval convention: index 0 = 通过, index 1 = 打回. */
+/** Hub approval convention: index 0 = 通过, 1 = 打回. */
 function decideToast(
   data: { changed?: boolean },
   payload: { index?: number; text?: string },
@@ -41,14 +57,13 @@ export default function App() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  const [toast, setToast] = useState<{ id: number; message: string; error: boolean } | null>(null);
-  const toastTimer = useRef<number | null>(null);
-
   const showToast = useCallback((message: string, isError = false) => {
-    const id = Date.now();
-    setToast({ id, message, error: isError });
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 4200);
+    notifications.show({
+      message,
+      color: isError ? "red" : "teal",
+      withCloseButton: false,
+      autoClose: 4200,
+    });
   }, []);
 
   const handleAuth = useCallback((err: unknown) => {
@@ -232,102 +247,161 @@ export default function App() {
   const showSkeleton = loading && !board;
 
   return (
-    <div className="flex h-full flex-col">
-      <div
+    <Box h="100%" style={{ display: "flex", flexDirection: "column" }}>
+      <Box
         aria-hidden
-        className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-0.5 overflow-hidden"
-        style={{ opacity: slow ? 1 : 0, transition: "opacity .15s" }}
+        style={{
+          position: "fixed",
+          inset: "0 0 auto 0",
+          height: 2,
+          overflow: "hidden",
+          zIndex: 60,
+          opacity: slow ? 1 : 0,
+          transition: "opacity .15s",
+        }}
       >
-        <div
-          className="bg-primary h-full w-1/3"
-          style={{ animation: slow ? "hb-progress 1.1s ease-in-out infinite" : undefined }}
+        <Box
+          className={slow ? "hb-progress" : undefined}
+          style={{ width: "25%", height: "100%", background: "var(--mantine-color-indigo-5)" }}
         />
-      </div>
+      </Box>
 
-      <header className="bg-background sticky top-0 z-30 flex min-h-13 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b px-4 py-2">
-        <div className="flex items-center gap-2">
-          <span className="bg-card grid size-[22px] place-items-center rounded-md border">
-            <Boxes className="text-muted-foreground size-3.5" />
-          </span>
-          <span className="text-sm font-semibold">Hookboard</span>
-          <span
-            title={online ? "轮询 /api/board" : "无法连接后端"}
-            className={cn(
-              "size-1.5 rounded-full",
-              online ? "bg-[var(--status-done)]" : "bg-[var(--status-failed)]",
-            )}
-          />
-        </div>
-
-        <nav className="flex flex-wrap items-center gap-0.5 sm:gap-1" aria-label="状态统计">
-          {COLUMNS.map((column, index) => (
-            <span
-              key={column.key}
-              className="text-muted-foreground hover:bg-accent flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs sm:px-2"
+      <Box
+        component="header"
+        px="md"
+        py={10}
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 40,
+          flexShrink: 0,
+          background: "var(--mantine-color-dark-8)",
+          borderBottom: "1px solid var(--mantine-color-dark-5)",
+        }}
+      >
+        <Group gap="md" wrap="wrap">
+          <Group gap={8} wrap="nowrap">
+            <Box
+              style={{
+                width: 26,
+                height: 26,
+                borderRadius: 8,
+                display: "grid",
+                placeItems: "center",
+                background: "linear-gradient(135deg, #4f7cff, #8b5cf6)",
+                color: "#fff",
+              }}
             >
-              <span className={cn("size-1.5 rounded-full", column.dot)} />
-              <b className="text-foreground font-mono text-xs font-semibold tabular-nums">
-                {filtered[index]?.tasks.length ?? 0}
-              </b>
-              {column.title}
-            </span>
-          ))}
-        </nav>
+              <IconLayoutKanban size={15} stroke={2} />
+            </Box>
+            <Text size="sm" fw={700} lh={1}>Hookboard</Text>
+            <Tooltip label={online ? "轮询 /api/board" : "无法连接后端"} withArrow>
+              <Box
+                style={{
+                  width: 7,
+                  height: 7,
+                  borderRadius: 999,
+                  background: online ? "var(--mantine-color-teal-5)" : "var(--mantine-color-red-6)",
+                }}
+              />
+            </Tooltip>
+          </Group>
 
-        <div className="ml-auto flex items-center gap-2 border-l pl-4">
-          <Select
-            id="source-filter"
-            name="source"
-            value={source}
-            aria-label="按来源筛选"
-            onChange={(event) => {
-              const next = event.target.value;
-              setSource(next);
-              localStorage.setItem(SOURCE_KEY, next);
-            }}
-            className={cn("w-[100px] sm:w-[112px]", source && "[&_select]:border-ring/60 [&_select]:text-foreground")}
-          >
-            <option value="">全部来源</option>
-            {sources.map((name) => (
-              <option key={name} value={name}>{name}</option>
+          <Group component="nav" gap={2} wrap="wrap" aria-label="状态统计">
+            {COLUMNS.map((column, index) => (
+              <Group
+                key={column.key}
+                gap={6}
+                px={8}
+                py={4}
+                wrap="nowrap"
+                style={{ borderRadius: 8 }}
+              >
+                <Box
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: 999,
+                    background: `var(--mantine-color-${column.tone}-5)`,
+                  }}
+                />
+                <Text size="xs" fw={700} ff="monospace" lh={1}>
+                  {filtered[index]?.tasks.length ?? 0}
+                </Text>
+                <Text size="xs" c="dimmed" lh={1}>{column.title}</Text>
+              </Group>
             ))}
-          </Select>
-          <Button onClick={() => setComposerOpen(true)}>
-            <Plus />
-            新任务
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="API Token 设置" title="API Token 设置" onClick={() => setSettingsOpen(true)}>
-            <Settings />
-          </Button>
-        </div>
-      </header>
+          </Group>
+
+          <Group gap="xs" ml="auto" wrap="nowrap">
+            <Select
+              size="xs"
+              w={132}
+              id="source-filter"
+              name="source"
+              aria-label="按来源筛选"
+              data={[
+                { value: ALL_SOURCES, label: "全部来源" },
+                ...sources.map((name) => ({ value: name, label: name })),
+              ]}
+              value={source || ALL_SOURCES}
+              onChange={(next) => {
+                const value = !next || next === ALL_SOURCES ? "" : next;
+                setSource(value);
+                localStorage.setItem(SOURCE_KEY, value);
+              }}
+              allowDeselect={false}
+              comboboxProps={{ withinPortal: true }}
+            />
+            <Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setComposerOpen(true)}>
+              新任务
+            </Button>
+            <Tooltip label="API Token 设置" withArrow>
+              <ActionIcon
+                size="lg"
+                variant="default"
+                aria-label="API Token 设置"
+                onClick={() => setSettingsOpen(true)}
+              >
+                <IconSettings size={16} />
+              </ActionIcon>
+            </Tooltip>
+          </Group>
+        </Group>
+      </Box>
 
       {error ? (
-        <div
-          role="alert"
-          className="bg-destructive/10 border-destructive/30 text-destructive flex items-center gap-2 border-b px-4 py-1.5 text-xs"
+        <Alert
+          color="red"
+          variant="light"
+          radius={0}
+          py={6}
+          icon={<IconAlertCircle size={16} />}
+          style={{ flexShrink: 0 }}
         >
-          <AlertCircle className="size-3.5 shrink-0" />
-          无法连接后端：{error}
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="hover:bg-destructive/15 ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5"
-          >
-            <RefreshCw className="size-3" />
-            重试
-          </button>
-        </div>
+          <Group justify="space-between" gap="xs" wrap="nowrap">
+            <Text size="xs">无法连接后端：{error}</Text>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="red"
+              leftSection={<IconRefresh size={12} />}
+              onClick={() => void refresh()}
+            >
+              重试
+            </Button>
+          </Group>
+        </Alert>
       ) : null}
 
-      <div className="flex shrink-0 flex-wrap items-baseline gap-x-3 gap-y-1 px-4 pt-4">
-        <h1 className="m-0 text-[15px] font-semibold">任务看板</h1>
-        <p className="text-muted-foreground m-0 text-xs">
+      <Group gap="sm" align="baseline" px="md" pt="md" style={{ flexShrink: 0 }} wrap="wrap">
+        <Title order={4} fz={15} lh={1.2}>任务看板</Title>
+        <Text size="xs" c="dimmed">
           {showSkeleton
             ? "正在加载任务…"
             : `${total} 个任务 · 按状态分列 · 每 3 秒自动刷新，点击卡片查看详情`}
-        </p>
-      </div>
+        </Text>
+      </Group>
 
       <Board
         columns={showSkeleton ? [] : filtered}
@@ -362,21 +436,6 @@ export default function App() {
       />
 
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} onSaved={(message) => showToast(message)} />
-
-      {toast ? (
-        <div
-          key={toast.id}
-          role="status"
-          aria-live="polite"
-          className={cn(
-            "bg-popover text-popover-foreground fixed bottom-6 left-1/2 z-[80] max-w-[90vw] -translate-x-1/2 rounded-lg border px-4 py-2 text-sm shadow-lg",
-            toast.error && "bg-destructive/10 border-destructive/40 text-destructive",
-          )}
-          style={{ animation: "hb-toast-in .16s ease" }}
-        >
-          {toast.message}
-        </div>
-      ) : null}
-    </div>
+    </Box>
   );
 }

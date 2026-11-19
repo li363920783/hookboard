@@ -1,10 +1,26 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
+import { MantineProvider, createTheme } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
+import "@mantine/core/styles.css";
+import "@mantine/notifications/styles.css";
 import "./index.css";
+import App from "./App";
+
+const theme = createTheme({
+  primaryColor: "indigo",
+  defaultRadius: "md",
+  fontFamily:
+    "Inter, -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif",
+  fontFamilyMonospace:
+    "ui-monospace, SFMono-Regular, 'JetBrains Mono', Menlo, monospace",
+});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <MantineProvider defaultColorScheme="dark" theme={theme}>
+      <Notifications position="bottom-center" limit={3} autoClose={4200} />
+      <App />
+    </MantineProvider>
   </StrictMode>,
 );

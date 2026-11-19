@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { Button, Group, Stack, Text, Textarea } from "@mantine/core";
 import type { Approval } from "@/lib/types";
 
 /** Decision index convention comes from the hub: 0 = 通过, 1 = 打回. */
@@ -25,45 +24,48 @@ export function ApprovalForm({
     }
   }
 
+  if (done) {
+    return (
+      <Text size="xs" c="yellow.5">已提交，正在刷新…</Text>
+    );
+  }
+
   return (
-    <>
-      <p className="m-0 mb-2 text-xs" style={{ color: "var(--status-waiting)" }}>
-        {done ? "已提交，正在刷新…" : approval.question}
-      </p>
-      {done ? null : (
-        <>
-          <div className="flex flex-wrap gap-1.5">
-            {(approval.options || []).map((label, index) => (
-              <Button
-                key={label}
-                size="sm"
-                variant={index === approval.recommend ? "default" : "outline"}
-                disabled={busy}
-                onClick={() => run({ index })}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-          <Textarea
-            rows={2}
-            name="approval-comment"
-            className="mt-2 min-h-14 text-xs"
-            placeholder="补充意见（提交视为通过）"
-            value={text}
-            onChange={(event) => setText(event.target.value)}
-          />
+    <Stack gap={8}>
+      <Text size="xs" c="yellow.5" lh={1.5}>{approval.question}</Text>
+      <Group gap={6}>
+        {(approval.options || []).map((label, index) => (
           <Button
-            size="sm"
-            variant="secondary"
-            className="mt-1.5 w-full"
-            disabled={busy || !text.trim()}
-            onClick={() => run({ text: text.trim() })}
+            key={index}
+            type="button"
+            size="compact-sm"
+            radius="sm"
+            variant={index === approval.recommend ? "filled" : "default"}
+            disabled={busy}
+            onClick={() => run({ index })}
           >
-            提交
+            {label}
           </Button>
-        </>
-      )}
-    </>
+        ))}
+      </Group>
+      <Textarea
+        size="xs"
+        rows={2}
+        name="approval-comment"
+        placeholder="补充意见（提交视为通过）"
+        value={text}
+        onChange={(event) => setText(event.currentTarget.value)}
+      />
+      <Button
+        type="button"
+        size="compact-sm"
+        variant="light"
+        fullWidth
+        disabled={busy || !text.trim()}
+        onClick={() => run({ text: text.trim() })}
+      >
+        提交
+      </Button>
+    </Stack>
   );
 }

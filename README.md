@@ -258,13 +258,13 @@ token. No IM long-connection is involved.
 ## Board
 
 One file is served, `web/index.html`, with no CDN and no runtime dependency — it still works
-offline. It is built from the React + Tailwind + shadcn/ui sources in `web/ui/`:
+offline. It is built from the React + Mantine sources in `web/ui/`:
 
 ```bash
 cd web/ui && pnpm install && pnpm build   # inlines everything into web/index.html
 ```
 
-The board has five lanes (待处理 / 进行中 / 等你审批 / 已完成 / 失败), a dark neutral theme, and
+The board has five lanes (待处理 / 进行中 / 等你审批 / 已完成 / 失败), a dark Mantine theme, and
 one lane per row on a phone. Waiting cards embed the approval buttons and a free-text box;
 decisions go straight to `POST /a/{token}`.
 
