@@ -25,12 +25,14 @@ from .adapters import load_agent, load_notifier
 from .adapters.generic_source import dig_any
 
 
-# Kept short on purpose: a dispatched agent that re-researches or retries in a
-# loop burns tokens and time.  The context a step collected is meant to be used
-# as-is, questions go back to the person, and the delivery has to be checkable.
+# The collected context is the starting point, not gospel: tickets go stale and
+# the code often disagrees with them.  Agents may verify and re-investigate on
+# their own (read-only first); only blind retry loops and guessed conclusions
+# are off the table.
 _PROMPT_RULES = (
-    "执行约束：上下文已给全，按上下文直接动手，不要重新调研；"
-    "缺信息就在会话里提问，不要反复试错。"
+    "执行约束：上下文已给全，优先按上下文直接动手；"
+    "如果信息不足、过时，或与代码/数据对不上，可以自己调研核实（先只读查证），不要靠猜下结论；"
+    "缺关键信息（凭证/权限）就在会话里提问，不要反复试错。"
     "收尾必须给一段给人看的交付说明，按固定四行写："
     "①改了什么（文件 + 提交/分支）；②怎么验证的（命令与结果）；"
     "③没做/风险；④还需要人做什么（没有就写「无」）。"
