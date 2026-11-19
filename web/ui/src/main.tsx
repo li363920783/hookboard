@@ -9,7 +9,8 @@ import App from "./App";
 
 const theme = createTheme({
   primaryColor: "indigo",
-  defaultRadius: "md",
+  defaultRadius: "lg",
+  radius: { xs: "6px", sm: "8px", md: "12px", lg: "18px", xl: "22px" },
   fontFamily:
     "Inter, -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Noto Sans CJK SC', 'Microsoft YaHei', sans-serif",
   fontFamilyMonospace:

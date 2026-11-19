@@ -69,19 +69,27 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
       scrollAreaComponent={ScrollArea.Autosize}
       overlayProps={{ backgroundOpacity: 0.55, blur: 2 }}
       styles={{
-        content: { background: "var(--mantine-color-dark-8)" },
-        header: { background: "var(--mantine-color-dark-8)", borderBottom: "1px solid var(--mantine-color-dark-5)" },
+        content: {
+          background: "rgba(15,16,24,.82)",
+          backdropFilter: "blur(26px) saturate(150%)",
+          WebkitBackdropFilter: "blur(26px) saturate(150%)",
+          borderLeft: "1px solid rgba(255,255,255,.08)",
+        },
+        header: {
+          background: "transparent",
+          borderBottom: "1px solid rgba(255,255,255,.07)",
+        },
         body: { paddingBottom: 28 },
       }}
       title={
         task ? (
           <Box style={{ minWidth: 0 }}>
             <Group gap={6} wrap="nowrap">
-              <Badge size="sm" variant="light" color={STATUS_TONE[task.status] || "gray"} radius="sm">
+              <Badge size="sm" variant="light" color={STATUS_TONE[task.status] || "gray"} radius="xl">
                 {task.status}
               </Badge>
-              <Badge size="sm" variant="light" color="gray" radius="sm">{task.stage}</Badge>
-              <Badge size="sm" variant="light" color="indigo" radius="sm">{task.source}</Badge>
+              <Badge size="sm" variant="light" color="gray" radius="xl">{task.stage}</Badge>
+              <Badge size="sm" variant="light" color="indigo" radius="xl">{task.source}</Badge>
               <Text size="xs" c="dimmed" ff="monospace" truncate>{task.external_id}</Text>
             </Group>
             <Title order={5} mt={6} fz={15} lh={1.4} lineClamp={2} style={{ maxWidth: 430 }}>
@@ -90,9 +98,9 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
           </Box>
         ) : (
           <Group gap={6}>
-            <Skeleton height={20} width={54} radius="sm" />
-            <Skeleton height={20} width={54} radius="sm" />
-            <Skeleton height={20} width={54} radius="sm" />
+            <Skeleton height={20} width={54} radius="xl" />
+            <Skeleton height={20} width={54} radius="xl" />
+            <Skeleton height={20} width={54} radius="xl" />
           </Group>
         )
       }
@@ -100,9 +108,9 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
       {!detail ? (
         loading ? (
           <Stack gap="sm">
-            <Skeleton height={160} radius="md" />
-            <Skeleton height={96} radius="md" />
-            <Skeleton height={96} radius="md" />
+            <Skeleton height={160} radius="lg" />
+            <Skeleton height={96} radius="lg" />
+            <Skeleton height={96} radius="lg" />
           </Stack>
         ) : (
           <Group gap="xs">
@@ -133,7 +141,7 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
 
           {String(task!.context || "").trim() ? (
             <Section title="需求详情">
-              <Paper p="sm" radius="md" withBorder style={{ background: "var(--mantine-color-dark-7)", maxHeight: "32vh", overflow: "auto" }}>
+              <Paper p="sm" radius="lg" withBorder style={{ background: "rgba(255,255,255,.04)", maxHeight: "32vh", overflow: "auto" }}>
                 <Box
                   className="hb-prose"
                   style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
@@ -147,7 +155,7 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
 
           {detail.approvals?.filter((approval) => approval.status === "open").map((approval) => (
             <Section key={approval.token} title={`等你审批 · ${approval.stage || ""}`}>
-              <Paper p="sm" radius="md" withBorder style={{ background: "var(--mantine-color-dark-7)" }}>
+              <Paper p="sm" radius="lg" withBorder style={{ background: "rgba(255,255,255,.04)" }}>
                 <ApprovalForm approval={approval} onDecide={onDecide} />
               </Paper>
             </Section>
@@ -164,7 +172,7 @@ export function TaskDrawer({ open, detail, loading, onClose, onDecide, onMessage
           <ProcessList events={detail.events || []} />
 
           <Section title="原始数据">
-            <Accordion variant="separated" radius="md" chevronPosition="right">
+            <Accordion variant="separated" radius="lg" chevronPosition="right">
               <Accordion.Item value="payload">
                 <Accordion.Control fz="xs">报文 payload</Accordion.Control>
                 <Accordion.Panel>
@@ -312,7 +320,7 @@ function DeliveryRun({ runs }: { runs?: Run[] }) {
   const seconds = Math.max(0, Math.round((run.finished_at || 0) - (run.started_at || 0)));
   return (
     <Section title={`交付结果 · ${run.stage}${seconds ? ` · ${seconds}s` : ""}`}>
-      <Paper p="sm" radius="md" withBorder style={{ background: "var(--mantine-color-dark-7)", maxHeight: "32vh", overflow: "auto" }}>
+      <Paper p="sm" radius="lg" withBorder style={{ background: "rgba(255,255,255,.04)", maxHeight: "32vh", overflow: "auto" }}>
         <Box
           className="hb-prose"
           style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word" }}
@@ -344,7 +352,7 @@ function RunsTable({ runs }: { runs: Run[] }) {
               <Table.Td><Text size="xs" ff="monospace">{run.stage}</Text></Table.Td>
               <Table.Td><Text size="xs" c="dimmed">{run.agent}</Text></Table.Td>
               <Table.Td>
-                <Badge size="sm" variant="light" color={run.ok ? "teal" : "red"} radius="sm">
+                <Badge size="sm" variant="light" color={run.ok ? "teal" : "red"} radius="xl">
                   {run.ok ? "成功" : "失败"}
                 </Badge>
               </Table.Td>

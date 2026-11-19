@@ -247,7 +247,8 @@ export default function App() {
   const showSkeleton = loading && !board;
 
   return (
-    <Box h="100%" style={{ display: "flex", flexDirection: "column" }}>
+    <Box h="100%" style={{ display: "flex", flexDirection: "column", position: "relative" }}>
+      <Box className="hb-aurora" aria-hidden />
       <Box
         aria-hidden
         style={{
@@ -268,6 +269,7 @@ export default function App() {
 
       <Box
         component="header"
+        className="hb-header"
         px="md"
         py={10}
         style={{
@@ -275,8 +277,6 @@ export default function App() {
           top: 0,
           zIndex: 40,
           flexShrink: 0,
-          background: "var(--mantine-color-dark-8)",
-          borderBottom: "1px solid var(--mantine-color-dark-5)",
         }}
       >
         <Group gap="md" wrap="wrap">
@@ -285,11 +285,12 @@ export default function App() {
               style={{
                 width: 26,
                 height: 26,
-                borderRadius: 8,
+                borderRadius: 9,
                 display: "grid",
                 placeItems: "center",
-                background: "linear-gradient(135deg, #4f7cff, #8b5cf6)",
+                background: "var(--mantine-color-indigo-6)",
                 color: "#fff",
+                boxShadow: "0 0 18px -4px rgba(99,102,241,.85)",
               }}
             >
               <IconLayoutKanban size={15} stroke={2} />
@@ -311,11 +312,12 @@ export default function App() {
             {COLUMNS.map((column, index) => (
               <Group
                 key={column.key}
+                className="hb-chip"
                 gap={6}
-                px={8}
+                px={10}
                 py={4}
                 wrap="nowrap"
-                style={{ borderRadius: 8 }}
+                style={{ borderRadius: 999 }}
               >
                 <Box
                   style={{
@@ -353,7 +355,7 @@ export default function App() {
               allowDeselect={false}
               comboboxProps={{ withinPortal: true }}
             />
-            <Button size="xs" leftSection={<IconPlus size={14} />} onClick={() => setComposerOpen(true)}>
+            <Button className="hb-primary" size="xs" leftSection={<IconPlus size={14} />} onClick={() => setComposerOpen(true)}>
               新任务
             </Button>
             <Tooltip label="API Token 设置" withArrow>

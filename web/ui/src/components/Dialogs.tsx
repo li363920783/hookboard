@@ -43,8 +43,16 @@ export function ComposerDialog({
       title="下发任务指令"
       centered
       size="lg"
+      radius="xl"
       overlayProps={{ backgroundOpacity: 0.55, blur: 2 }}
-      styles={{ content: { background: "var(--mantine-color-dark-8)" } }}
+      styles={{
+        content: {
+          background: "rgba(17,18,26,.88)",
+          backdropFilter: "blur(26px) saturate(150%)",
+          WebkitBackdropFilter: "blur(26px) saturate(150%)",
+          border: "1px solid rgba(255,255,255,.08)",
+        },
+      }}
     >
       <Box component="form" onSubmit={submit}>
         <Stack gap="md">
@@ -107,8 +115,16 @@ export function SettingsDialog({
       onClose={() => onOpenChange(false)}
       title="API Token"
       centered
+      radius="xl"
       overlayProps={{ backgroundOpacity: 0.55, blur: 2 }}
-      styles={{ content: { background: "var(--mantine-color-dark-8)" } }}
+      styles={{
+        content: {
+          background: "rgba(17,18,26,.88)",
+          backdropFilter: "blur(26px) saturate(150%)",
+          WebkitBackdropFilter: "blur(26px) saturate(150%)",
+          border: "1px solid rgba(255,255,255,.08)",
+        },
+      }}
     >
       <Stack gap="md">
         <Text size="xs" c="dimmed" lh={1.5}>

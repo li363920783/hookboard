@@ -29,19 +29,19 @@ export function Board({ columns, loading, onOpen, onDecide }: BoardProps) {
         return (
           <Card
             key={column.key}
-            className="hb-col"
+            className="hb-col hb-lane"
             padding={8}
-            radius="lg"
+            radius="xl"
             withBorder
             style={{
               display: "flex",
               flexDirection: "column",
               minHeight: 0,
-              background: "var(--mantine-color-dark-7)",
             }}
           >
             <Group gap={8} px={4} mb={8} wrap="nowrap">
               <Box
+                className={column.key === "running" ? "hb-pulse" : undefined}
                 style={{
                   width: 8,
                   height: 8,
@@ -51,7 +51,7 @@ export function Board({ columns, loading, onOpen, onDecide }: BoardProps) {
                 }}
               />
               <Text size="sm" fw={600} lh={1.2}>{column.title}</Text>
-              <Badge size="xs" variant="light" color={column.tone} radius="sm" ml="auto">
+              <Badge size="xs" variant="light" color={column.tone} radius="xl" ml="auto">
                 {tasks.length}
               </Badge>
             </Group>
@@ -69,7 +69,7 @@ export function Board({ columns, loading, onOpen, onDecide }: BoardProps) {
                 ) : tasks.length === 0 ? (
                   <Card
                     padding="lg"
-                    radius="md"
+                    radius="lg"
                     withBorder
                     style={{
                       borderStyle: "dashed",
@@ -105,16 +105,14 @@ function TaskCard({
   const tone = COLUMNS.find((column) => column.key === task.status)?.tone || "gray";
   return (
     <Card
-      className="hb-task"
+      className="hb-task hb-card"
+      data-tone={tone}
+      data-status={task.status}
       padding="sm"
-      radius="md"
+      radius="lg"
       withBorder
       onClick={() => onOpen(task)}
-      style={{
-        cursor: "pointer",
-        background: "var(--mantine-color-dark-6)",
-        borderColor: "var(--mantine-color-dark-4)",
-      }}
+      style={{ cursor: "pointer" }}
     >
       <Group justify="space-between" gap={8} mb={6} wrap="nowrap">
         <Text size="xs" c="dimmed" fw={600} tt="uppercase" style={{ letterSpacing: ".05em" }} truncate>
@@ -133,10 +131,10 @@ function TaskCard({
       </UnstyledButton>
 
       <Group gap={6} mt={8} wrap="wrap">
-        <Badge size="sm" variant="light" color={tone} radius="sm">{task.stage}</Badge>
+        <Badge size="sm" variant="light" color={tone} radius="xl">{task.stage}</Badge>
         <Text size="xs" c="dimmed">{elapsed(task.created_at)}</Text>
         {task.session && ACTIVE.includes(task.status) ? (
-          <Badge size="sm" variant="light" color="indigo" radius="sm" ml="auto">已派单</Badge>
+          <Badge size="sm" variant="light" color="indigo" radius="xl" ml="auto">已派单</Badge>
         ) : null}
       </Group>
 
@@ -148,7 +146,7 @@ function TaskCard({
         <Card
           mt={8}
           padding="xs"
-          radius="sm"
+          radius="lg"
           withBorder
           onClick={(event) => event.stopPropagation()}
           style={{
