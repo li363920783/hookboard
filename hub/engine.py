@@ -951,14 +951,35 @@ class Engine:
         A rejection is a request for changes, not a dead end: when the task has
         an agent session, the reviewer's note goes back into that session and
         the task returns to work instead of staying failed.
+
+        An approval that carries a note is also an instruction: with no session
+        yet (the plan gate) it rides in the task context the next prompt is
+        built from; once the agent exists (the review gate) it goes straight
+        into the thread, like rejection feedback does.
         """
+        comment = str(text or "").strip()
+        gate = self.store.get_approval_by_token(token) if comment else None
+        approved = gate is not None and (index in (None, "") or int(index) == 0)
+        waiting = self.store.get_task(gate["task_id"]) if approved else None
+        into_session = bool(waiting and waiting.get("session"))
         approval, task, changed = self.store.decide(
             token,
             index=index,
             text=text,
             by=by,
             next_stage=self.next_stage,
+            carry_context=(
+                f"审批意见（{gate['stage']} 阶段通过时补充，必须遵守）：\n{comment}"
+                if approved and not into_session
+                else ""
+            ),
         )
+        if changed and approval is not None and task is not None and into_session:
+            try:
+                self.send_message(task, f"审批通过时补充的说明，请在后续阶段遵守：\n\n{comment}")
+            except Exception as exc:  # decided already: report, never 500
+                traceback.print_exc()
+                self.store.add_event(task["id"], "message_error", f"{type(exc).__name__}: {exc}")
         if (
             not changed
             or approval is None
