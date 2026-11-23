@@ -226,6 +226,50 @@ class ApprovalAdvancesStageTest(HubTestCase):
         self.assertFalse(advanced["note"])
 
 
+class ApprovalCommentTest(HubTestCase):
+    def test_a_comment_typed_when_approving_reaches_the_next_prompt(self):
+        # Approving with a note is an instruction, not a label: it must reach
+        # the agent that picks up the next stage.
+        task = self.new_task()
+        approval = self.wait_for_approval(task["id"])
+
+        _, advanced, changed = self.engine.decide(
+            approval["token"], index=0, text="先查网关那边的上传失败日志"
+        )
+
+        self.assertTrue(changed)
+        self.assertIn("先查网关那边的上传失败日志", advanced["context"] or "")
+        prompt = self.engine._prompt(self.store.get_task(task["id"]))
+        self.assertIn("先查网关那边的上传失败日志", prompt)
+
+    def test_a_string_zero_index_still_carries_the_note(self):
+        task = self.new_task()
+        approval = self.wait_for_approval(task["id"])
+
+        _, advanced, _ = self.engine.decide(approval["token"], index="0", text="查上传日志")
+
+        self.assertIn("查上传日志", advanced["context"] or "")
+
+    def test_a_long_context_gives_up_its_tail_not_the_note(self):
+        task = self.new_task()
+        self.store.update_task(task["id"], context="旧上下文" * 2000)
+        approval = self.wait_for_approval(task["id"])
+
+        _, advanced, _ = self.engine.decide(approval["token"], index=0, text="必须照这个做")
+
+        context = advanced["context"] or ""
+        self.assertTrue(context.endswith("必须照这个做"))
+        self.assertLessEqual(len(context), 7900)
+
+    def test_a_plain_approval_leaves_the_context_alone(self):
+        task = self.new_task()
+        approval = self.wait_for_approval(task["id"])
+
+        _, advanced, _ = self.engine.decide(approval["token"], index=0)
+
+        self.assertFalse(advanced["context"])
+
+
 class RejectionTest(HubTestCase):
     def test_reject_fails_the_task(self):
         task = self.new_task()

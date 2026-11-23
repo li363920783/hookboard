@@ -548,6 +548,7 @@ class Store:
         text: str | None = None,
         by: str = "",
         next_stage=None,
+        carry_context: str = "",
     ) -> tuple[dict | None, dict | None, bool]:
         """Answer an approval exactly once, then advance its task.
 
@@ -555,6 +556,10 @@ class Store:
         ``changed=False``.  ``next_stage(stage)`` maps the gate's stage to the
         following one (``None`` means the pipeline is finished).  This keeps
         pipeline policy in the engine while all writes stay here.
+
+        ``carry_context`` is appended to the task context in the same write
+        that advances it, so a note typed at the gate cannot be raced by the
+        worker that picks the next stage up.
         """
         now = time.time()
         with self._conn() as conn:
@@ -604,10 +609,19 @@ class Store:
                 if approved:
                     following = next_stage(approval["stage"]) if next_stage else None
                     if following:
+                        # The note is the instruction to honor, so it keeps the
+                        # tail; an over-long context gives up its own end.
+                        context = None
+                        if carry_context:
+                            note = carry_context[-7900:]
+                            room = max(0, 7900 - len(note) - 2)
+                            head = str(task.get("context") or "").rstrip()[:room].rstrip()
+                            context = "\n\n".join(part for part in (head, note) if part)[:7900]
                         conn.execute(
                             "UPDATE tasks SET status='pending', stage=?, next_run_at=NULL, "
-                            "note=NULL, updated_at=? WHERE id=? AND status='waiting'",
-                            (following, now, task["id"]),
+                            "note=NULL, context=coalesce(?, context), updated_at=? "
+                            "WHERE id=? AND status='waiting'",
+                            (following, context, now, task["id"]),
                         )
                     else:
                         conn.execute(
